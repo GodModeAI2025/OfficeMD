@@ -1,0 +1,70 @@
+# OfficeMD: Plan und Stand
+
+Erster Entwurf vom 2026-10-06 (damals noch unter dem Arbeitstitel ZugPferd), am selben Tag
+umgesetzt. Dieses Dokument hält fest, was entschieden wurde, warum, und was offen ist. Die
+Bedienung steht in der [README](README.md).
+
+## 1. Was der Distiller-Code am ursprünglichen Konzept korrigiert hat
+
+**Der Hash ist ein Byte-Hash, kein Text-Hash.** `extract_source.py` setzt `content_sha256` und
+die Source-ID aus den rohen Dateibytes. `verify_evidence.py` ordnet Graph und Extraktion nur
+darüber zu. Jedes Speichern in Office und schon das Einbetten selbst ändern diese Bytes.
+Umgesetzt: eigener Text-Fingerprint `omd-text-v1` über Selektoren und `text_sha256` der
+Segmente.
+
+**Kanonisch ist `.knowledge.json`, nicht `.knowledge.md`.** Eingebettet wird der Graph, das
+Markdown kommt aus `build_md.py` und liegt als zweites Element mit im Part. Zusätzliche
+Frontmatter-Felder wie `source_sha256` waren unnötig, SPEC §4.2 hat `content_sha256` und `type`.
+
+**PPTX brauchte keinen neuen Selektor.** Ursprünglich war ein `SlideSelector` angedacht.
+Umgesetzt ist `FragmentSelector` `ppt/slides/slideN.xml#paragraph=K` wie beim DOCX-Adapter, dazu
+`PageSelector` mit der Foliennummer. `verify_evidence.py` löst Fragment-Selektoren ohne Änderung
+auf. Keine Spec-Erweiterung nötig.
+
+Der DOCX-Leser des Distillers liest nur Text-Parts, ein zusätzlicher `customXml`-Part stört die
+Extraktion nicht. Durch Tests belegt: Der Fingerprint bleibt beim Einbetten gleich.
+
+## 2. Entscheidungen
+
+| Frage | Entscheidung |
+|---|---|
+| Belegprüfung trotz Byte-Hash | Weg (b): In temporären Kopien wird die eine Quelle, die für die Datei steht (`source_id`), an die aktuelle Extraktion gebunden, dann läuft das unveränderte `verify_evidence.py`. Weg (a), ein textbasierter Hash direkt im Distiller, bleibt als Änderung dort offen. |
+| Merge nach Neukompilierung | `merge_knowledge.py` lehnt abweichende `content_sha256` derselben Quelle ab. `update` setzt den Wert der eingehenden Quelle auf den der Basis und meldet das (`aligned_source_digest`). |
+| Distiller einbinden | Git-Submodule `vendor/knowledge-distiller`, Aufruf per Subprozess mit `python -E -s` |
+| XLSX/PPTX | Eigene Adapter mit den Sicherheitsfunktionen aus `extract_source.py` |
+| Ablage von Archiv und Diffs | Sidecar `Datei.docx.knowledge/` mit `knowledge.json`, `knowledge.md`, `embed.json`, `versions/`, Diffs |
+| Markdown zusätzlich einbetten | Ja, als `<omd:markdown>` neben `<omd:graph>` |
+| Name | OfficeMD, Repo `GodModeAI2025/OfficeMD`, Paket und CLI `officemd` |
+
+## 3. Phasen
+
+| Phase | Inhalt | Stand |
+|---|---|---|
+| 1 | DOCX, Roh-Markdown, registrierter Part, `check`/`embed`/`restore`/`strip` | erledigt |
+| 2 | Wissensgraph: `build_graph`, `validate`, `verify`, `update` (Merge), `render` | erledigt |
+| 3 | XLSX- und PPTX-Adapter | erledigt |
+| 4 | Office-Roundtrip per AppleScript, Kompatibilitätsbericht | erledigt für macOS |
+| 5 | SwiftUI-Oberfläche über dem CLI | gebaut, Oberfläche noch nicht durchgeklickt |
+
+## 4. Ergebnis des Office-Roundtrips
+
+`officemd selftest --office` auf macOS 27.2, Bericht in `compat/`:
+
+| App | Part überlebt | GUID gleich | Fingerprint-Eintrag | Belege nach dem Speichern |
+|---|---|---|---|---|
+| Word 16.113.4 | ja | ja | ja | 1 von 1 gefunden |
+| Excel 16.113.3 | ja | ja | ja | 1 von 1 gefunden |
+| PowerPoint 16.113.3 | ja | ja | ja | 1 von 1 gefunden |
+
+Zwei Fallstricke beim AppleScript, beide behoben: Nach „Speichern unter“ ist die alte
+Dokumentreferenz ungültig, geschlossen wird deshalb über den Dateinamen. Excel braucht beim
+ersten Start länger als das Standard-Timeout von AppleScript.
+
+## 5. Offen
+
+- Office für Windows, Office im Browser, Dokumentinspektor, Pages, Google Docs, LibreOffice
+  testen. Die Liste der möglichen Ursachen bei „Verloren“ ist bis dahin eine Annahme.
+- Textbasierter Hash direkt im Distiller (Weg a), dann entfällt die Umbindung in OfficeMD.
+- SwiftUI-App: Oberfläche testen, Bundle mit eingebettetem Python und Distiller bauen,
+  Signierung.
+- Agent-Schritt für den Modus Wissensgraph in die App holen (heute extern).

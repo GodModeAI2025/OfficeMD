@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+compat/files/
+.omd-*
+~$*
+*.knowledge/
+app/.build/
+app/.swiftpm/
+.DS_Store

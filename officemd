@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Startskript ohne Installation: ./officemd check Datei.docx"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+
+from officemd.cli import main  # noqa: E402
+
+raise SystemExit(main())

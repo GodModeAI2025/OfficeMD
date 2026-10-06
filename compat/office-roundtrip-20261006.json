@@ -1,0 +1,55 @@
+{
+  "tool_version": "0.1.0",
+  "macos": "27.2",
+  "date": "2026-10-06T20:34:17+00:00",
+  "office": [
+    {
+      "app": "Microsoft Word",
+      "version": "16.113.4",
+      "created": true,
+      "fingerprint_before": "omd-text-v1:be01ce718e473e789389a84ae02928608701c58479a0c9a7e515d373b9058802",
+      "state_after_save": "stale",
+      "part_survived": true,
+      "part_registered": true,
+      "payload_intact": true,
+      "props_survived": true,
+      "guid_kept": true,
+      "saved_by": "Microsoft Office Word",
+      "warnings": [],
+      "evidence_after_save": "1 von 1 Belegen gefunden",
+      "ok": true
+    },
+    {
+      "app": "Microsoft Excel",
+      "version": "16.113.3",
+      "created": true,
+      "fingerprint_before": "omd-text-v1:75392483202b84bfc91d527a7c73fedc0c7c88045c4ac3a466bb968b4e005c1b",
+      "state_after_save": "stale",
+      "part_survived": true,
+      "part_registered": true,
+      "payload_intact": true,
+      "props_survived": true,
+      "guid_kept": true,
+      "saved_by": "Microsoft Macintosh Excel",
+      "warnings": [],
+      "evidence_after_save": "1 von 1 Belegen gefunden",
+      "ok": true
+    },
+    {
+      "app": "Microsoft PowerPoint",
+      "version": "16.113.3",
+      "created": true,
+      "fingerprint_before": "omd-text-v1:bebe372e88cb87a1b76cf2aa2b1b52d651b834943b79558e3f58fb5f2ce5b2e5",
+      "state_after_save": "stale",
+      "part_survived": true,
+      "part_registered": true,
+      "payload_intact": true,
+      "props_survived": true,
+      "guid_kept": true,
+      "saved_by": "Microsoft Macintosh PowerPoint",
+      "warnings": [],
+      "evidence_after_save": "1 von 1 Belegen gefunden",
+      "ok": true
+    }
+  ]
+}
