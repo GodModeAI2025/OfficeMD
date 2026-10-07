@@ -266,6 +266,7 @@ tests/                      pytest
 compat/                     Kompatibilitätsberichte
 docs/index.html             Landingpage
 app/                        SwiftUI-Oberfläche (macOS)
+scripts/build-app.sh        Signiertes App-Bundle mit eingebettetem Python bauen
 ```
 
 ## Mac-App
@@ -274,7 +275,25 @@ Unter `app/` liegt eine schlanke SwiftUI-Oberfläche. Sie ruft nur `officemd che
 die anderen Befehle auf und enthält selbst keine Paketlogik.
 
 ```bash
-cd app && swift run
+cd app && swift run                # Entwicklung, nutzt ./officemd aus dem Repository
+scripts/build-app.sh               # fertiges dist/OfficeMD.app samt Zip
+```
+
+`scripts/build-app.sh` baut eine eigenständige App: SwiftUI-Programm, ein eingebettetes Python
+3.12 mit OfficeMD und den SDKs von Anthropic und OpenAI sowie der Knowledge Distiller. Auf dem
+Zielrechner braucht es weder Python noch Git. Das Skript signiert jedes Binary einzeln und dann
+das Bundle, mit Hardened Runtime. Die Identität sucht es selbst: zuerst „Developer ID
+Application“, sonst „Apple Development“, sonst ad hoc; mit `SIGN_IDENTITY=…` lässt sie sich
+festlegen. Danach prüft es die Signatur und lässt den Selbsttest im Bundle laufen. Das
+eingebettete Python schreibt keine `.pyc`-Dateien, die Signatur bleibt also auch nach dem
+Benutzen gültig.
+
+Damit andere Macs die App ohne Warnung öffnen, muss sie notarisiert sein. Einmalig ein Profil
+anlegen (App-spezifisches Passwort von appleid.apple.com), dann mit Profil bauen:
+
+```bash
+xcrun notarytool store-credentials officemd --apple-id <apple-id> --team-id <team-id>
+NOTARY_PROFILE=officemd scripts/build-app.sh
 ```
 
 ![OfficeMD-App mit einer verlorenen Excel-Datei](docs/app.png)
@@ -290,14 +309,14 @@ Ordner oder Dateien ins Fenster ziehen oder beim Start übergeben
 (`swift run OfficeMDApp ~/Dokumente`), dann zeigt die Liste den Zustand jeder Datei. Je nach
 Zustand gibt es Roh-Markdown einbetten, Wiederherstellen und Markdown anzeigen. Den Pfad zu
 `officemd` findet die App selbst, solange sie aus dem Repository gestartet wird, sonst in den
-Einstellungen setzen.
+Einstellungen setzen. In der gebauten App liegt `officemd` im Bundle und wird automatisch
+verwendet.
 
 Für Tests fotografiert die App ihr eigenes Fenster, ohne Berechtigung zur Bildschirmaufnahme:
 `swift run OfficeMDApp ORDNER --select datei.docx --snapshot bild.png`, mit `--settings` das
 Einstellungsfenster. So ist das Bild oben
 entstanden. Die Darstellung aller Zustände ist damit geprüft; die Aktionen rufen nur die
-getesteten CLI-Befehle auf. Ein signiertes App-Bundle mit eingebettetem Python gibt es noch
-nicht.
+getesteten CLI-Befehle auf.
 
 ## Lizenz
 

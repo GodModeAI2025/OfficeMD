@@ -11,8 +11,13 @@ struct CLI {
         return CLI(executable: stored.isEmpty ? guessExecutable() : stored)
     }
 
-    /// Sucht `officemd` neben dem Repository: vom App-Binary aufwärts, dann im PATH.
+    /// Sucht `officemd`: zuerst im App-Bundle (eingebettetes Python), dann neben dem
+    /// Repository vom App-Binary aufwärts, dann im PATH.
     static func guessExecutable() -> String {
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/officemd"),
+           FileManager.default.isExecutableFile(atPath: bundled.path) {
+            return bundled.path
+        }
         var url = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         for _ in 0..<8 {
             url.deleteLastPathComponent()

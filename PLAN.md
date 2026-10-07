@@ -46,6 +46,7 @@ Extraktion nicht. Durch Tests belegt: Der Fingerprint bleibt beim Einbetten glei
 | 4 | Office-Roundtrip per AppleScript, Kompatibilitätsbericht | erledigt für macOS |
 | 5 | SwiftUI-Oberfläche über dem CLI | erledigt, Darstellung aller Zustände per `--snapshot` geprüft |
 | 6 | KI-Kompilierung mit Anthropic/OpenAI, `sync`, Einstellungen in der App | erledigt, mit Fake-Anbieter getestet; Live-Lauf mit gültigem Key offen |
+| 7 | Signiertes App-Bundle mit eingebettetem Python 3.12, SDKs und Distiller (`scripts/build-app.sh`) | erledigt, signiert mit Developer ID; Notarisierung offen |
 
 ## 4. Ergebnis des Office-Roundtrips
 
@@ -104,7 +105,7 @@ Modellausgaben zum Testen vorliegen.
 
 - Office für Windows, Office im Browser, Dokumentinspektor, Pages, Google Docs, LibreOffice
   testen. Die Liste der möglichen Ursachen bei „Verloren“ ist bis dahin eine Annahme.
-- SwiftUI-App: Bundle mit eingebettetem Python und Distiller bauen, Signierung.
+- App notarisieren: braucht ein `notarytool`-Profil (`NOTARY_PROFILE=… scripts/build-app.sh`).
 - KI-Kompilierung mit gültigem Key gegen beide Anbieter laufen lassen; Prompt und Schema an
   echten Ausgaben nachschärfen.
 - Delta-Merge für veraltete Graphen (siehe Abschnitt 5).
