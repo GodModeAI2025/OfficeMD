@@ -15,10 +15,13 @@ Landingpage mit dem Konzept: [`docs/index.html`](docs/index.html)
 
 - Die Datei trägt ihr Wissen selbst. Wer sie per Mail bekommt, bekommt den Graphen mit.
 - „Veraltet“ ist keine Ja/Nein-Frage, sondern eine Zahl: *1 von 3 Belegen sind im Dokument nicht
-  mehr auffindbar.* Neu bewertet werden nur die betroffenen Aussagen.
-- Aktualisieren ist ein additiver Merge. Menschliche Ergänzungen (`human_added`) und der
-  Review-Status bleiben erhalten, jede alte Fassung wird archiviert, jede Änderung als Diff
-  festgehalten.
+  mehr auffindbar.*
+- `officemd sync` prüft und aktualisiert in einem Schritt: Mit deinem Anthropic- oder
+  OpenAI-Key wird ein veraltetes Dokument nach den Regeln des Distillers neu kompiliert, geprüft
+  und eingebettet. Die alte Fassung wird archiviert, menschliche Ergänzungen mit noch
+  auffindbarem Zitat werden übernommen.
+- Einen fertigen Graphen spielt `officemd update` als additiven Merge ein. Menschliche
+  Ergänzungen und Review-Status bleiben erhalten, jede Änderung wird als Diff festgehalten.
 - Geht der Part beim Speichern verloren, erkennt OfficeMD das und stellt ihn aus dem Sidecar
   wieder her.
 
@@ -30,7 +33,9 @@ cd OfficeMD
 ./officemd selftest          # Pakettest ohne Office, ein paar Sekunden
 ```
 
-Python 3.9 oder neuer, keine Abhängigkeiten außer der Standardbibliothek. Wer lieber
+Python 3.9 oder neuer, keine Abhängigkeiten außer der Standardbibliothek. Nur die
+KI-Kompilierung braucht die SDKs von Anthropic bzw. OpenAI und Python 3.10 oder neuer; das
+richtet `./officemd setup-ai` ein. Wer lieber
 installiert: `pip install -e .` stellt den Befehl `officemd` bereit. Fehlt das Submodule, hilft
 `git submodule update --init`.
 
@@ -58,16 +63,76 @@ $ officemd verify Bericht.docx
 deterministisch und bettet ihn als Markdown ein: Absätze bei Word, eine Tabelle pro Blatt bei
 Excel, Folien samt Notizen bei PowerPoint. Aktualität wird über den Text-Fingerprint geprüft.
 
-**Wissensgraph** braucht einmal einen externen Agenten, der aus den Segmenten einen
-`.knowledge.json` kompiliert. Die Regeln dafür stehen im Distiller (`SKILL.md`,
-`profiles/default.json`). Alles danach läuft offline: Graph normalisieren, validieren, Belege
-verifizieren, Markdown rendern, mergen.
+**Wissensgraph** braucht für das Kompilieren ein Sprachmodell. OfficeMD ruft dafür Anthropic
+oder OpenAI mit deinem eigenen API-Key auf, siehe [KI-Kompilierung](#ki-kompilierung). Alles
+danach läuft offline: Graph normalisieren, validieren, Belege verifizieren, Markdown rendern,
+mergen. Wer lieber einen eigenen Agenten nutzt, kann den Graphen auch extern schreiben lassen:
 
 ```bash
 officemd extract Bericht.docx -o bericht.segments.json   # Eingabe für den Agenten
-# ... Agent schreibt bericht.knowledge.json ...
+# ... Agent schreibt bericht.knowledge.json nach SKILL.md des Distillers ...
 officemd embed Bericht.docx --graph bericht.knowledge.json
 ```
+
+## KI-Kompilierung
+
+Ein Befehl prüft und aktualisiert bei Bedarf:
+
+```bash
+./officemd setup-ai                          # einmalig: .venv mit Python 3.12 und den SDKs
+./officemd config set provider anthropic     # oder openai
+./officemd config set-key anthropic          # Key wird abgefragt, landet im Schlüsselbund
+./officemd config test anthropic             # kurzer Probeaufruf
+
+./officemd sync ~/Dokumente/Projekt          # alle Office-Dateien prüfen und aktualisieren
+./officemd sync Bericht.docx --dry-run       # nur anzeigen, was passieren würde
+```
+
+Was `sync` pro Datei macht:
+
+| Zustand | Aktion |
+|---|---|
+| Aktuell | nichts |
+| Nie vorhanden | kompilieren und einbetten (mit `--raw` oder `mode raw`: Roh-Markdown ohne KI) |
+| Veraltet, Roh-Markdown | Roh-Markdown neu einbetten, ohne KI |
+| Veraltet, Wissensgraph | aktuellen Text neu kompilieren, alte Fassung nach `versions/` archivieren, menschliche Ergänzungen übernehmen, deren Zitat noch im Text steht |
+| Verloren | aus dem Sidecar wiederherstellen; ist der Text inzwischen geändert, danach neu kompilieren |
+| Nicht lesbar oder in Office geöffnet | überspringen |
+
+**Wie kompiliert wird.** Der Prompt besteht aus den Regeln von `SKILL.md` (Abschnitte „Nicht
+tun“ und Phase 2) und dem Compilerprofil `profiles/default.json` des eingebundenen Distillers.
+Er wird zur Laufzeit aus dem Submodule gelesen, ändert sich der Distiller, ändert sich der
+Prompt mit. Das Modell antwortet in einem kompakten, per JSON-Schema erzwungenen Format: Belege
+mit wörtlichen Zitaten, Cluster, Begriffe, Aussagen, Beziehungen. Den Spec-1.1-Graphen baut
+OfficeMD daraus selbst, samt Quelle, Selektoren, Herkunft und Review-Status. Zähler und Scores
+berechnet `build_graph.py`. Danach laufen `validate_knowledge.py` und `verify_evidence.py`.
+Findet sich ein Zitat nicht wörtlich im Dokument oder ist der Graph nicht konform, gehen die
+Fehler mit der vorherigen Ausgabe zurück ans Modell. Nach zwei erfolglosen Korrekturrunden
+bricht OfficeMD ab und bettet nichts ein, wie es `SKILL.md` verlangt. Gekürzt wird nie: Ist ein
+Dokument größer als `max_input_chars` (Standard 400.000 Zeichen), meldet OfficeMD das.
+
+**Anbieter und Voreinstellungen.**
+
+| Anbieter | Modell (Standard) | Aufruf |
+|---|---|---|
+| Anthropic | `claude-opus-5-5`, Effort `high` | offizielles `anthropic`-SDK, Messages API mit Streaming und `output_config.format` (JSON-Schema). Systemprompt mit Prompt-Caching. Serverseitiger Fallback bei Ablehnung ist eingeschaltet (`fallbacks: "default"`), abschaltbar mit `config set anthropic.fallbacks false`. |
+| OpenAI | `gpt-6-astra`, Effort `high` | offizielles `openai`-SDK, Responses API mit `text.format` (JSON-Schema, strict) |
+
+Modelle und Effort lassen sich ändern, etwa `config set anthropic.model claude-sonnet-5-5`.
+`config show` zeigt alles, auch woher der Key kommt, aber nie den Key selbst.
+
+**API-Keys.** Reihenfolge: Umgebungsvariable (`OFFICEMD_ANTHROPIC_API_KEY`,
+`ANTHROPIC_API_KEY`, `OFFICEMD_OPENAI_API_KEY`, `OPENAI_API_KEY`), dann der macOS-Schlüsselbund
+(Dienst `officemd`), auf anderen Systemen eine Datei `credentials.json` mit Rechten 0600. Ein Key
+steht nie in Argumenten oder Ausgaben; die App und `config set-key` übergeben ihn über stdin.
+
+**Datenschutz.** Beim Kompilieren geht der extrahierte Dokumenttext an den gewählten Anbieter,
+`sync` sagt vor jedem Aufruf, an wen. Prüfen, Wiederherstellen und Roh-Markdown laufen lokal.
+
+**Stand der Tests.** Kompilieren, Korrekturschleife, alle `sync`-Pfade, Konfiguration und
+Keyablage sind mit einem Fake-Anbieter getestet, ohne Netz. Gegen die echten APIs lief nur ein
+Aufruf mit absichtlich falschem Key: Beide SDKs nehmen die Anfrage an und melden den Key sauber
+als ungültig. Ein Lauf mit gültigem Key steht noch aus.
 
 ## Befehle
 
@@ -82,9 +147,14 @@ officemd embed Bericht.docx --graph bericht.knowledge.json
 | `restore DATEI` | Verlorenen Part aus dem Sidecar zurückschreiben |
 | `strip DATEI [--keep-props]` | Part entfernen; mit `--keep-props` lässt sich „Verloren“ simulieren |
 | `selftest [--office]` | Pakettest, mit `--office` echter Roundtrip in Word, Excel und PowerPoint |
+| `sync PFAD… [--raw] [--dry-run]` | Prüfen und bei Bedarf per KI neu kompilieren und einbetten |
+| `compile DATEI [-o G]` | Nur kompilieren, Graph als Datei schreiben |
+| `config show\|set\|set-key\|delete-key\|test` | Anbieter, Modelle, Effort, Keys |
+| `setup-ai` | `.venv` mit Python 3.12 und den SDKs anlegen |
 
 Exit-Codes von `check`: 0 alles aktuell oder nie eingebettet, 1 mindestens eine Datei veraltet,
-3 verloren oder nicht lesbar, 2 Bedienfehler.
+3 verloren oder nicht lesbar, 2 Bedienfehler. `sync` endet mit 2, wenn eine Datei nicht
+aktualisiert werden konnte.
 
 ## Zustände
 
@@ -169,6 +239,10 @@ src/officemd/
   fingerprint.py            Text-Fingerprint
   rawmd.py                  Roh-Markdown
   distiller.py              Subprozess-Aufrufe der Distiller-Skripte
+  compiler.py               KI-Kompilierung: Schema, Prompt aus SKILL.md, Assembler, Korrekturschleife
+  providers.py              Anthropic und OpenAI über die offiziellen SDKs
+  sync.py                   Prüfen und bei Bedarf aktualisieren
+  config.py                 Konfiguration und API-Keys
   adapters/ooxml_extract.py XLSX- und PPTX-Extraktion
   selftest.py               Pakettest und Office-Roundtrip per AppleScript
   fixtures.py               Minimale Office-Dateien für Tests
@@ -190,6 +264,13 @@ cd app && swift run
 
 ![OfficeMD-App mit einer verlorenen Excel-Datei](docs/app.png)
 
+**Prüfen & aktualisieren** (pro Datei und in der Symbolleiste für alle) ruft `officemd sync`
+auf. In den Einstellungen (⌘,) stehen Anbieter, Modus für neue Dateien, Tiefe, Modell und Effort
+je Anbieter sowie das Feld für den API-Key. „Speichern“ legt ihn im Schlüsselbund ab,
+„Verbindung testen“ schickt einen kurzen Probeaufruf.
+
+<img src="docs/app-settings.png" alt="Einstellungen der OfficeMD-App: Anbieter, Modelle, Effort und API-Keys" width="450">
+
 Ordner oder Dateien ins Fenster ziehen oder beim Start übergeben
 (`swift run OfficeMDApp ~/Dokumente`), dann zeigt die Liste den Zustand jeder Datei. Je nach
 Zustand gibt es Roh-Markdown einbetten, Wiederherstellen und Markdown anzeigen. Den Pfad zu
@@ -197,7 +278,8 @@ Zustand gibt es Roh-Markdown einbetten, Wiederherstellen und Markdown anzeigen. 
 Einstellungen setzen.
 
 Für Tests fotografiert die App ihr eigenes Fenster, ohne Berechtigung zur Bildschirmaufnahme:
-`swift run OfficeMDApp ORDNER --select datei.docx --snapshot bild.png`. So ist das Bild oben
+`swift run OfficeMDApp ORDNER --select datei.docx --snapshot bild.png`, mit `--settings` das
+Einstellungsfenster. So ist das Bild oben
 entstanden. Die Darstellung aller Zustände ist damit geprüft; die Aktionen rufen nur die
 getesteten CLI-Befehle auf. Ein signiertes App-Bundle mit eingebettetem Python gibt es noch
 nicht.

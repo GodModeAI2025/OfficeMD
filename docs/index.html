@@ -179,7 +179,7 @@ Eingebettet (graph): Bericht.docx
     <ol class="steps">
       <li><strong>Extrahieren.</strong> Der Text wird deterministisch in Segmente zerlegt, jedes mit
       genauer Fundstelle: Absatz bei Word, Zeile bei Excel, Absatz und Foliennummer bei PowerPoint.</li>
-      <li><strong>Kompilieren.</strong> Ein KI-Agent schreibt daraus einen Graphen im
+      <li><strong>Kompilieren.</strong> Ein Sprachmodell (Claude oder GPT, mit deinem Key) schreibt daraus einen Graphen im
       <code>.knowledge.json</code>-Format des Knowledge Distillers: Begriffe, Aussagen, Beziehungen,
       und zu jeder Aussage ein Beleg mit Zitat. Das ist der einzige Schritt mit einem Modell.</li>
       <li><strong>Prüfen und einbetten.</strong> OfficeMD validiert den Graphen, sucht jedes Zitat
@@ -189,8 +189,12 @@ Eingebettet (graph): Bericht.docx
       <li><strong>Additiv aktualisieren.</strong> Ein neuer Graph wird gemergt, nie überschrieben.
       Die alte Fassung landet im Archiv, die Änderung als Diff daneben.</li>
     </ol>
-    <p style="margin-top:16px">Ohne KI geht es auch: Im Modus <em>Roh-Markdown</em> bettet
-    OfficeMD einfach einen lesbaren Textabzug ein und prüft die Aktualität über den Fingerprint.</p>
+    <p style="margin-top:16px">Den Kompilierschritt übernimmt OfficeMD auf Wunsch selbst:
+    <code>officemd sync</code> prüft jede Datei und lässt veraltete oder neue Dokumente von Claude
+    (Anthropic) oder GPT (OpenAI) mit deinem eigenen API-Key neu kompilieren, nach den Regeln des
+    Knowledge Distillers und mit Korrekturrunden, bis jeder Beleg im Text steht.</p>
+    <p>Ohne KI geht es auch: Im Modus <em>Roh-Markdown</em> bettet OfficeMD einfach einen lesbaren
+    Textabzug ein und prüft die Aktualität über den Fingerprint.</p>
   </div>
 </section>
 
@@ -311,8 +315,9 @@ Eingebettet (graph): Bericht.docx
 <section>
   <div class="wrap">
     <h2>Auch als Mac-App</h2>
-    <p>Ordner ins Fenster ziehen, und OfficeMD zeigt für jede Office-Datei den Zustand. Verlorene
-    Parts lassen sich mit einem Klick aus dem Sidecar zurückholen. Die App ist eine schlanke
+    <p>Ordner ins Fenster ziehen, und OfficeMD zeigt für jede Office-Datei den Zustand. „Prüfen &amp;
+    aktualisieren“ kompiliert bei Bedarf neu, Anbieter, Modell und API-Key stehen in den
+    Einstellungen. Verlorene Parts lassen sich mit einem Klick aus dem Sidecar zurückholen. Die App ist eine schlanke
     SwiftUI-Hülle um dasselbe CLI.</p>
     <img src="app.png" alt="OfficeMD-App: Liste mit Zuständen Aktuell, Nicht lesbar, Nie vorhanden und Verloren, rechts die Details einer verlorenen Excel-Datei mit Knopf zum Wiederherstellen" style="width:100%;height:auto;border:1px solid var(--line);border-radius:10px">
   </div>
@@ -325,8 +330,14 @@ Eingebettet (graph): Bericht.docx
 cd OfficeMD
 ./officemd selftest                 # Pakettest ohne Office
 ./officemd embed Notizen.docx       # Roh-Markdown einbetten, ohne KI
-./officemd check ~/Dokumente        # alle Office-Dateien im Ordner prüfen</code></pre>
-    <p>Python 3.9 oder neuer, nur Standardbibliothek. Keine Netzwerkzugriffe, keine Telemetrie.</p>
+./officemd check ~/Dokumente        # alle Office-Dateien im Ordner prüfen
+
+./officemd setup-ai                 # optional: SDKs für Claude und GPT
+./officemd config set provider anthropic
+./officemd config set-key anthropic
+./officemd sync ~/Dokumente         # prüfen und bei Bedarf neu kompilieren</code></pre>
+    <p>Python 3.9 oder neuer, ohne KI nur Standardbibliothek. Netzwerkzugriffe gibt es nur beim
+    Kompilieren, und dann nur zum gewählten Anbieter. Keine Telemetrie.</p>
   </div>
 </section>
 

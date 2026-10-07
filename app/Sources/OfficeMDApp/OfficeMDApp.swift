@@ -29,10 +29,10 @@ final class Store: ObservableObject {
     @Published var error: String?
     @Published var markdown: String?
 
-    var cli: CLI {
-        let stored = UserDefaults.standard.string(forKey: "cliPath") ?? ""
-        return CLI(executable: stored.isEmpty ? CLI.guessExecutable() : stored)
-    }
+    @Published var syncStatus: String?
+    @Published var syncResults: [SyncResult]?
+
+    var cli: CLI { CLI.current() }
 
     var selected: FileReport? { reports.first { $0.id == selection } }
 
@@ -47,8 +47,8 @@ final class Store: ObservableObject {
                 selection = reports.first { $0.fileName == name }?.id ?? selection
             }
             if let path = options.snapshot {
-                try? await Task.sleep(for: .seconds(1.5))
-                Snapshot.write(to: path)
+                try? await Task.sleep(for: .seconds(2.5))
+                Snapshot.write(to: path, settings: options.settings)
                 NSApplication.shared.terminate(nil)
             }
         }
@@ -86,6 +86,21 @@ final class Store: ObservableObject {
         await refresh()
     }
 
+    /// Prüfen und bei Bedarf per KI aktualisieren. Dauert mit KI gern mehrere Minuten.
+    func sync(_ paths: [String], label: String) async {
+        busy = true
+        syncStatus = "\(label): prüfen und aktualisieren … (mit KI kann das einige Minuten dauern)"
+        do {
+            syncResults = try await cli.sync(paths)
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+        syncStatus = nil
+        busy = false
+        await refresh()
+    }
+
     func showMarkdown(for report: FileReport) async {
         do {
             markdown = try await cli.action(["render", report.file])
@@ -98,6 +113,7 @@ final class Store: ObservableObject {
 struct ContentView: View {
     @StateObject private var store = Store()
     @State private var importing = false
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         NavigationSplitView {
@@ -136,6 +152,13 @@ struct ContentView: View {
             ToolbarItemGroup {
                 if store.busy { ProgressView().controlSize(.small) }
                 Button { importing = true } label: { Label("Hinzufügen", systemImage: "plus") }
+                Button {
+                    Task { await store.sync(store.roots.map(\.path), label: "Alle Dateien") }
+                } label: {
+                    Label("Alle prüfen & aktualisieren", systemImage: "wand.and.stars")
+                }
+                .help("Prüft alle Dateien und kompiliert bei Bedarf neu (KI laut Einstellungen)")
+                .disabled(store.roots.isEmpty || store.busy)
                 Button { Task { await store.refresh() } } label: {
                     Label("Neu prüfen", systemImage: "arrow.clockwise")
                 }
@@ -148,6 +171,9 @@ struct ContentView: View {
                       allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { store.add(urls) }
         }
+        .onAppear {
+            if LaunchOptions.parse(CommandLine.arguments).settings { openSettings() }
+        }
         .dropDestination(for: URL.self) { urls, _ in
             store.add(urls)
             return true
@@ -159,6 +185,20 @@ struct ContentView: View {
         }
         .sheet(isPresented: Binding(get: { store.markdown != nil }, set: { if !$0 { store.markdown = nil } })) {
             MarkdownSheet(text: store.markdown ?? "") { store.markdown = nil }
+        }
+        .sheet(isPresented: Binding(get: { store.syncResults != nil }, set: { if !$0 { store.syncResults = nil } })) {
+            SyncResultSheet(results: store.syncResults ?? []) { store.syncResults = nil }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let status = store.syncStatus {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(status).font(.callout)
+                    Spacer()
+                }
+                .padding(10)
+                .background(.bar)
+            }
         }
     }
 }
@@ -219,6 +259,13 @@ struct DetailView: View {
                 }
                 Divider()
                 HStack {
+                    if ["never", "stale", "lost"].contains(report.state) {
+                        Button("Prüfen & aktualisieren") {
+                            Task { await store.sync([report.file], label: report.fileName) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Kompiliert bei Bedarf mit der KI aus den Einstellungen neu und bettet ein")
+                    }
                     if report.state == "never" || report.state == "stale", report.mode != "graph" {
                         Button("Roh-Markdown einbetten") { Task { await store.perform(["embed", report.file]) } }
                     }
@@ -234,8 +281,8 @@ struct DetailView: View {
                     }
                 }
                 .disabled(store.busy || report.locked)
-                if report.mode == "graph", report.state == "stale" {
-                    Text("Graph aktualisieren: neuen Graphen kompilieren lassen und mit `officemd update` einspielen.")
+                if report.state == "never" || (report.mode == "graph" && report.state == "stale") {
+                    Text("„Prüfen & aktualisieren“ schickt den Dokumenttext an den KI-Anbieter aus den Einstellungen. Ohne KI: „Roh-Markdown einbetten“.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -270,6 +317,16 @@ struct MarkdownSheet: View {
 }
 
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            AISettingsView().tabItem { Label("KI", systemImage: "wand.and.stars") }
+            GeneralSettingsView().tabItem { Label("Allgemein", systemImage: "gearshape") }
+        }
+        .frame(width: 620, height: 760)
+    }
+}
+
+struct GeneralSettingsView: View {
     @AppStorage("cliPath") private var cliPath = ""
 
     var body: some View {
@@ -279,7 +336,189 @@ struct SettingsView: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding()
-        .frame(width: 520)
+    }
+}
+
+@MainActor
+final class AISettingsModel: ObservableObject {
+    @Published var config: AIConfig?
+    @Published var keys: [String: String] = ["anthropic": "", "openai": ""]
+    @Published var models: [String: String] = [:]
+    @Published var message: String?
+    @Published var busy = false
+
+    let cli = CLI.current()
+
+    func load() async {
+        do {
+            config = try await cli.config()
+            for (name, info) in config?.providers ?? [:] { models[name] = info.model }
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    func set(_ key: String, _ value: String) async {
+        await run(["config", "set", key, value])
+    }
+
+    func saveKey(_ provider: String) async {
+        let key = keys[provider, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        await run(["config", "set-key", provider], stdin: key + "\n")
+        keys[provider] = ""
+    }
+
+    func test(_ provider: String) async {
+        await run(["config", "test", provider], showOutput: true)
+    }
+
+    func run(_ arguments: [String], stdin: String? = nil, showOutput: Bool = false) async {
+        busy = true
+        do {
+            let out = try await cli.action(arguments, stdin: stdin)
+            message = showOutput || stdin != nil ? out.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        } catch {
+            message = error.localizedDescription
+        }
+        busy = false
+        await load()
+    }
+}
+
+struct AISettingsView: View {
+    @StateObject private var model = AISettingsModel()
+    private let efforts = ["low", "medium", "high", "xhigh", "max"]
+
+    var body: some View {
+        Form {
+            if let config = model.config {
+                Section {
+                    Picker("Anbieter", selection: Binding(
+                        get: { config.provider ?? "" },
+                        set: { value in Task { await model.set("provider", value.isEmpty ? "none" : value) } })) {
+                        Text("Keiner").tag("")
+                        Text("Anthropic (Claude)").tag("anthropic")
+                        Text("OpenAI").tag("openai")
+                    }
+                    Picker("Neue Dateien", selection: Binding(
+                        get: { config.mode },
+                        set: { value in Task { await model.set("mode", value) } })) {
+                        Text("Wissensgraph (KI)").tag("graph")
+                        Text("Roh-Markdown (ohne KI)").tag("raw")
+                    }
+                    Picker("Tiefe", selection: Binding(
+                        get: { config.depth },
+                        set: { value in Task { await model.set("depth", value) } })) {
+                        Text("quick").tag("quick")
+                        Text("standard").tag("standard")
+                        Text("deep").tag("deep")
+                    }
+                } footer: {
+                    Text("Beim Kompilieren geht der Dokumenttext an den gewählten Anbieter. Prüfen, Wiederherstellen und Roh-Markdown laufen lokal.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                ForEach(["anthropic", "openai"], id: \.self) { name in
+                    if let info = config.providers[name] {
+                        providerSection(name, info)
+                    }
+                }
+            } else {
+                ProgressView()
+            }
+            if let message = model.message {
+                Text(message).font(.callout).textSelection(.enabled)
+            }
+        }
+        .formStyle(.grouped)
+        .disabled(model.busy)
+        .task { await model.load() }
+    }
+
+    @ViewBuilder
+    private func providerSection(_ name: String, _ info: AIConfig.ProviderInfo) -> some View {
+        Section(name == "anthropic" ? "Anthropic" : "OpenAI") {
+            HStack {
+                TextField("Modell", text: Binding(get: { model.models[name, default: info.model] },
+                                                  set: { model.models[name] = $0 }))
+                    .onSubmit { Task { await model.set("\(name).model", model.models[name, default: info.model]) } }
+                Button("Übernehmen") {
+                    Task { await model.set("\(name).model", model.models[name, default: info.model]) }
+                }
+            }
+            Picker("Effort", selection: Binding(
+                get: { info.effort },
+                set: { value in Task { await model.set("\(name).effort", value) } })) {
+                ForEach(efforts, id: \.self) { Text($0).tag($0) }
+            }
+            if let fallbacks = info.fallbacks {
+                Toggle("Bei Ablehnung auf anderes Claude-Modell ausweichen", isOn: Binding(
+                    get: { fallbacks },
+                    set: { value in Task { await model.set("\(name).fallbacks", value ? "true" : "false") } }))
+            }
+            LabeledContent("API-Key") {
+                Text(keyLabel(info.keySource)).foregroundStyle(info.keySource == "none" ? .orange : .secondary)
+            }
+            HStack {
+                SecureField("Neuen API-Key einfügen", text: Binding(get: { model.keys[name, default: ""] },
+                                                                    set: { model.keys[name] = $0 }))
+                Button("Speichern") { Task { await model.saveKey(name) } }
+                    .disabled(model.keys[name, default: ""].isEmpty)
+            }
+            HStack {
+                Button("Verbindung testen") { Task { await model.test(name) } }
+                    .disabled(info.keySource == "none" || !info.sdkAvailable)
+                if info.keySource == "keychain" {
+                    Button("Key löschen", role: .destructive) { Task { await model.run(["config", "delete-key", name]) } }
+                }
+            }
+            if !info.sdkAvailable {
+                Text("Python-SDK fehlt. Im Terminal einmalig ausführen: ./officemd setup-ai")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func keyLabel(_ source: String) -> String {
+        switch source {
+        case "keychain": return "im Schlüsselbund gespeichert"
+        case "env": return "aus Umgebungsvariable"
+        case "file": return "in credentials.json"
+        default: return "nicht hinterlegt"
+        }
+    }
+}
+
+struct SyncResultSheet: View {
+    let results: [SyncResult]
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Ergebnis").font(.title3.weight(.semibold))
+            List(results) { result in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        if let after = result.after {
+                            StatePill(state: after, label: label(after))
+                        }
+                        Text(result.fileName).font(.headline)
+                    }
+                    Text(result.message).font(.callout)
+                    ForEach(result.problems ?? [], id: \.self) { Text("• " + $0).font(.caption).foregroundStyle(.secondary) }
+                }
+                .padding(.vertical, 4)
+            }
+            HStack { Spacer(); Button("Schließen", action: close).keyboardShortcut(.defaultAction) }
+        }
+        .padding()
+        .frame(minWidth: 620, minHeight: 360)
+    }
+
+    private func label(_ state: String) -> String {
+        ["current": "Aktuell", "stale": "Veraltet", "lost": "Verloren", "never": "Nie vorhanden",
+         "unreadable": "Nicht lesbar"][state] ?? state
     }
 }
 
@@ -288,6 +527,7 @@ struct LaunchOptions {
     var paths: [String] = []
     var select: String?
     var snapshot: String?
+    var settings = false
 
     static func parse(_ arguments: [String]) -> LaunchOptions {
         var options = LaunchOptions()
@@ -296,6 +536,7 @@ struct LaunchOptions {
             switch arg {
             case "--select": options.select = iterator.next()
             case "--snapshot": options.snapshot = iterator.next()
+            case "--settings": options.settings = true
             default:
                 // Xcode und LaunchServices hängen eigene Schalter an (-NSDocumentRevisionsDebugMode …).
                 if !arg.hasPrefix("-") { options.paths.append(arg) }
@@ -308,8 +549,11 @@ struct LaunchOptions {
 /// Fotografiert das eigene Fenster. Braucht keine Berechtigung zur Bildschirmaufnahme.
 @MainActor
 enum Snapshot {
-    static func write(to path: String) {
-        guard let view = NSApplication.shared.windows.first(where: { $0.isVisible })?.contentView,
+    static func write(to path: String, settings: Bool = false) {
+        let visible = NSApplication.shared.windows.filter(\.isVisible)
+        let settingsWindow = visible.first { ($0.identifier?.rawValue ?? "").localizedCaseInsensitiveContains("settings") }
+        let window = (settings ? settingsWindow : nil) ?? visible.first { $0 !== settingsWindow }
+        guard let view = window?.contentView,
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))

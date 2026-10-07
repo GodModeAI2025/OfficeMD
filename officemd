@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
-"""Startskript ohne Installation: ./officemd check Datei.docx"""
+"""Startskript ohne Installation: ./officemd check Datei.docx
+
+Gibt es neben dem Skript eine .venv (angelegt mit ./officemd setup-ai), läuft OfficeMD mit
+deren Python, damit die KI-SDKs verfügbar sind.
+"""
+import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+root = Path(__file__).resolve().parent
+venv_python = root / ".venv" / "bin" / "python"
+if venv_python.is_file() and Path(sys.prefix).resolve() != (root / ".venv").resolve():
+    os.execv(str(venv_python), [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]])
+
+sys.path.insert(0, str(root / "src"))
 
 from officemd.cli import main  # noqa: E402
 

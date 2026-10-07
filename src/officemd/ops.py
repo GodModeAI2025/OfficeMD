@@ -178,8 +178,8 @@ def check(path: Path, *, with_evidence: bool = True) -> Dict[str, Any]:
         missing = ev["counts"]["not_found"]
         if missing:
             message = (f"Text hat sich geändert. {missing} von {ev['total']} Belegen sind im Dokument "
-                       "nicht mehr auffindbar. Betroffene Claims neu bewerten und mit officemd update "
-                       "einspielen.")
+                       "nicht mehr auffindbar. Aktualisieren mit officemd sync (KI) oder einen neuen "
+                       "Graphen per officemd update einspielen.")
         else:
             message = (f"Text hat sich geändert, alle {ev['total']} Belege sind weiterhin auffindbar. "
                        "Neue Inhalte sind im Graphen noch nicht erfasst.")
@@ -230,7 +230,7 @@ def _post_check(path: Path, fingerprint: str) -> None:
 
 def embed(path: Path, graph_path: Optional[Path] = None, *, source_id: Optional[str] = None,
           allow_missing_evidence: bool = False, replace: bool = False,
-          include_markdown: bool = True) -> Dict[str, Any]:
+          include_markdown: bool = True, compile_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     path = Path(path)
     lock = ooxml.existing_lock(path)
     if lock is not None:
@@ -289,7 +289,7 @@ def embed(path: Path, graph_path: Optional[Path] = None, *, source_id: Optional[
         _write_text(side / "knowledge.json", graph_text)
         if markdown is not None:
             _write_text(side / "knowledge.md", markdown)
-        _write_meta(side, payload, guid, path)
+        _write_meta(side, payload, guid, path, compile_info)
     result.update(mode="graph", guid=guid, source_id=sid, evidence=ev)
     return result
 
@@ -303,8 +303,9 @@ def _archive_sidecar_graph(side: Path, reason: str) -> Path:
     return target
 
 
-def _write_meta(side: Path, payload: ooxml.Payload, guid: str, path: Path) -> None:
-    _write_json(side / "embed.json", {
+def _write_meta(side: Path, payload: ooxml.Payload, guid: str, path: Path,
+                compile_info: Optional[Dict[str, Any]] = None) -> None:
+    meta = {
         "file": path.name,
         "mode": payload.mode,
         "fingerprint": payload.fingerprint,
@@ -312,7 +313,10 @@ def _write_meta(side: Path, payload: ooxml.Payload, guid: str, path: Path) -> No
         "guid": guid,
         "embedded_at": payload.embedded_at,
         "tool_version": payload.tool_version,
-    })
+    }
+    if compile_info:
+        meta["compiled_by"] = compile_info
+    _write_json(side / "embed.json", meta)
 
 
 # -- update ----------------------------------------------------------------------

@@ -57,3 +57,45 @@ enum CLIError: LocalizedError {
         }
     }
 }
+
+/// `officemd config show --json`, ohne Geheimnisse.
+struct AIConfig: Decodable {
+    let provider: String?
+    let mode: String
+    let depth: String
+    let keyStore: String
+    let python: String
+    let providers: [String: ProviderInfo]
+
+    struct ProviderInfo: Decodable {
+        let model: String
+        let effort: String
+        let fallbacks: Bool?
+        let keySource: String
+        let sdkAvailable: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case model, effort, fallbacks
+            case keySource = "key_source"
+            case sdkAvailable = "sdk_available"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case provider, mode, depth, python, providers
+        case keyStore = "key_store"
+    }
+}
+
+/// Ein Eintrag aus `officemd sync --json`.
+struct SyncResult: Decodable, Identifiable {
+    var id: String { file }
+    let file: String
+    let action: String
+    let message: String
+    let before: String?
+    let after: String?
+    let problems: [String]?
+
+    var fileName: String { (file as NSString).lastPathComponent }
+}

@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+ai = ["anthropic>=1", "openai>=1"]
 
 [project.scripts]
 officemd = "officemd.cli:main"

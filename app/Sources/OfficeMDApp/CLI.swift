@@ -5,6 +5,12 @@ import Foundation
 struct CLI {
     let executable: String
 
+    /// CLI laut Einstellungen, sonst automatisch gesucht.
+    static func current() -> CLI {
+        let stored = UserDefaults.standard.string(forKey: "cliPath") ?? ""
+        return CLI(executable: stored.isEmpty ? guessExecutable() : stored)
+    }
+
     /// Sucht `officemd` neben dem Repository: vom App-Binary aufwärts, dann im PATH.
     static func guessExecutable() -> String {
         var url = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
@@ -23,7 +29,7 @@ struct CLI {
         return "officemd"
     }
 
-    func run(_ arguments: [String]) async throws -> (status: Int32, stdout: String, stderr: String) {
+    func run(_ arguments: [String], stdin: String? = nil) async throws -> (status: Int32, stdout: String, stderr: String) {
         guard executable.contains("/") == false || FileManager.default.fileExists(atPath: executable) else {
             throw CLIError.notFound(executable)
         }
@@ -40,6 +46,8 @@ struct CLI {
             let err = Pipe()
             process.standardOutput = out
             process.standardError = err
+            let input = Pipe()
+            process.standardInput = input
             process.terminationHandler = { proc in
                 let stdout = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
                 let stderr = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -47,6 +55,11 @@ struct CLI {
             }
             do {
                 try process.run()
+                // Geheimnisse (API-Keys) gehen nur über stdin, nie als Argument.
+                if let stdin, let data = stdin.data(using: .utf8) {
+                    input.fileHandleForWriting.write(data)
+                }
+                try? input.fileHandleForWriting.close()
             } catch {
                 continuation.resume(throwing: error)
             }
@@ -63,9 +76,26 @@ struct CLI {
         return [try decoder.decode(FileReport.self, from: data)]
     }
 
+    func config() async throws -> AIConfig {
+        let result = try await run(["config", "show", "--json"])
+        guard result.status == 0, let data = result.stdout.data(using: .utf8) else {
+            throw CLIError.failed(result.stderr.isEmpty ? "Konfiguration nicht lesbar" : result.stderr)
+        }
+        return try JSONDecoder().decode(AIConfig.self, from: data)
+    }
+
+    /// Prüft und aktualisiert bei Bedarf; kann mit KI mehrere Minuten dauern.
+    func sync(_ paths: [String], raw: Bool = false) async throws -> [SyncResult] {
+        let result = try await run(["sync", "--json"] + (raw ? ["--raw"] : []) + paths)
+        guard let data = result.stdout.data(using: .utf8), !result.stdout.isEmpty else {
+            throw CLIError.failed(result.stderr.isEmpty ? "Keine Ausgabe von officemd sync" : result.stderr)
+        }
+        return try JSONDecoder().decode([SyncResult].self, from: data)
+    }
+
     /// Führt einen schreibenden Befehl aus und liefert dessen Meldung.
-    func action(_ arguments: [String]) async throws -> String {
-        let result = try await run(arguments)
+    func action(_ arguments: [String], stdin: String? = nil) async throws -> String {
+        let result = try await run(arguments, stdin: stdin)
         if result.status != 0 {
             throw CLIError.failed(result.stderr.isEmpty ? result.stdout : result.stderr)
         }

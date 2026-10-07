@@ -45,6 +45,7 @@ Extraktion nicht. Durch Tests belegt: Der Fingerprint bleibt beim Einbetten glei
 | 3 | XLSX- und PPTX-Adapter | erledigt |
 | 4 | Office-Roundtrip per AppleScript, Kompatibilitätsbericht | erledigt für macOS |
 | 5 | SwiftUI-Oberfläche über dem CLI | erledigt, Darstellung aller Zustände per `--snapshot` geprüft |
+| 6 | KI-Kompilierung mit Anthropic/OpenAI, `sync`, Einstellungen in der App | erledigt, mit Fake-Anbieter getestet; Live-Lauf mit gültigem Key offen |
 
 ## 4. Ergebnis des Office-Roundtrips
 
@@ -60,10 +61,47 @@ Zwei Fallstricke beim AppleScript, beide behoben: Nach „Speichern unter“ ist
 Dokumentreferenz ungültig, geschlossen wird deshalb über den Dateinamen. Excel braucht beim
 ersten Start länger als das Standard-Timeout von AppleScript.
 
-## 5. Offen
+## 5. KI-Kompilierung
+
+Entscheidungen:
+
+- Das Modell liefert nur Inhalt in einem kompakten, per JSON-Schema erzwungenen Format. Den
+  Spec-Graphen baut OfficeMD selbst. So hängen Format, IDs, Quelle und Herkunftsfelder nie am
+  Modell, und das Schema bleibt mit den strikten Modi beider Anbieter verträglich.
+- Prompt aus `SKILL.md` („Nicht tun“, Phase 2 bis vor 2.7) und `profiles/default.json`, zur
+  Laufzeit aus dem Submodule gelesen. Fakten, Chunks, räumliche Angaben und Inferenz bleiben
+  vorerst draußen, wie es das Standardprofil ohnehin vorsieht.
+- Korrekturschleife: build_graph, validate, verify; Fehler zurück ans Modell, höchstens zwei
+  Runden, danach Abbruch ohne Einbetten.
+- Offizielle SDKs (`anthropic`, `openai`) als optionales Extra; der Rest bleibt
+  Standardbibliothek. `./officemd setup-ai` legt `.venv` an, das Startskript nutzt sie.
+- Keys: Umgebungsvariable, sonst macOS-Schlüsselbund, sonst Datei mit 0600. Übergabe nur per
+  stdin.
+
+**Veraltete Graphen werden neu kompiliert, nicht per Delta gemergt.** Ein Delta-Merge, der
+wieder „Aktuell“ erreicht, scheitert heute an fünf Stellen:
+
+1. Belege, die nicht mehr im Text stehen, bleiben im additiven Merge erhalten; sie müssten
+   vorher als `rejected` markiert und in der Zählung ausgenommen werden.
+2. Der eingehende Graph muss für sich allein validieren und braucht daher die referenzierten
+   Bestandsknoten, und zwar byte-genau, sonst lehnt der Merge die abweichende Nutzlast ab.
+3. ID-Kollisionen bei Belegen, Claims und Fakten müssten umbenannt und alle Verweise
+   nachgezogen werden.
+4. Kanten mit gleichem Tripel, aber anderem Gewicht oder anderer Konfidenz sind ein Konflikt.
+5. Cluster mit gleicher ID und anderem Label ebenso.
+
+Der Neuaufbau archiviert die alte Fassung in `versions/` und übernimmt menschliche Ergänzungen,
+deren Zitat noch im Text steht. Der Delta-Merge ist der nächste Schritt, sobald echte
+Modellausgaben zum Testen vorliegen.
+
+## 6. Offen
 
 - Office für Windows, Office im Browser, Dokumentinspektor, Pages, Google Docs, LibreOffice
   testen. Die Liste der möglichen Ursachen bei „Verloren“ ist bis dahin eine Annahme.
 - Textbasierter Hash direkt im Distiller (Weg a), dann entfällt die Umbindung in OfficeMD.
 - SwiftUI-App: Bundle mit eingebettetem Python und Distiller bauen, Signierung.
-- Agent-Schritt für den Modus Wissensgraph in die App holen (heute extern).
+- KI-Kompilierung mit gültigem Key gegen beide Anbieter laufen lassen; Prompt und Schema an
+  echten Ausgaben nachschärfen.
+- Delta-Merge für veraltete Graphen (siehe Abschnitt 5).
+- Fakten (`facts[]`) und Chunks im Ausgabeschema ergänzen.
+- Sehr große Dokumente in Abschnitten kompilieren statt abzulehnen.
