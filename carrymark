@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Startskript ohne Installation: ./carrymark check Datei.docx
 
-Gibt es neben dem Skript eine .venv (angelegt mit ./carrymark setup-ai), läuft Carrymark mit
-deren Python, damit die KI-SDKs verfügbar sind.
+Gibt es neben dem Skript eine .venv (angelegt mit ./carrymark setup), läuft Carrymark mit
+deren Python, damit markitdown verfügbar ist.
 """
 import os
 import sys

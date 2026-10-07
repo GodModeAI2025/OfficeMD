@@ -17,7 +17,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -79,36 +78,41 @@ def fingerprint(body: str) -> str:
 
 def core_metadata(pkg: ooxml.Package) -> Dict[str, Optional[str]]:
     """Titel, Autor und Änderungsdatum aus docProps/core.xml, sofern vorhanden."""
-    result: Dict[str, Optional[str]] = {"title": None, "author": None, "last_modified": None}
-    if not pkg.has("docProps/core.xml"):
-        return result
-    try:
-        root = pkg.xml("docProps/core.xml")
-    except ooxml.OoxmlError:
-        return result
+    root = pkg.optional_xml("docProps/core.xml")
 
     def text(path: str) -> Optional[str]:
-        node = root.find(path, NS_CORE)
+        node = root.find(path, NS_CORE) if root is not None else None
         value = (node.text or "").strip() if node is not None else ""
         return value or None
 
-    result["title"] = text("dc:title")
-    result["author"] = text("dc:creator")
-    result["last_modified"] = text("dcterms:modified")
-    return result
+    return {"title": text("dc:title"), "author": text("dc:creator"),
+            "last_modified": text("dcterms:modified")}
 
 
-def convert(path: Path) -> Conversion:
+_MARKITDOWN = None
+
+
+def _markitdown():
+    """Eine MarkItDown-Instanz für alle Umwandlungen eines Laufs."""
+    global _MARKITDOWN
+    if _MARKITDOWN is None:
+        from markitdown import MarkItDown
+
+        _MARKITDOWN = MarkItDown(enable_plugins=False)
+    return _MARKITDOWN
+
+
+def convert(path: Path, pkg: Optional[ooxml.Package] = None) -> Conversion:
+    """Markdown für ``path``. ``pkg``: bereits geöffnetes Paket, spart das zweite Entpacken."""
     path = Path(path)
-    try:
-        pkg = ooxml.Package(path)  # weist Makros, Verschlüsselung und kaputte Archive vorher ab
-    except ooxml.OoxmlError as exc:
-        raise ConversionError(str(exc)) from exc
+    if pkg is None:
+        try:
+            pkg = ooxml.Package(path)  # weist Makros, Verschlüsselung und kaputte Archive vorher ab
+        except ooxml.OoxmlError as exc:
+            raise ConversionError(str(exc)) from exc
     version = markitdown_version()
-    from markitdown import MarkItDown
-
     try:
-        result = MarkItDown(enable_plugins=False).convert_local(str(path))
+        result = _markitdown().convert_local(str(path))
     except Exception as exc:  # markitdown fasst Konverterfehler unterschiedlich zusammen
         raise ConversionError(f"markitdown konnte die Datei nicht umwandeln: {exc}") from exc
     body = normalize(result.text_content or "")
@@ -167,5 +171,6 @@ def okf_index(entries: List[Tuple[str, str, str]], title: str = "Dokumente") -> 
     """
     lines = ["---", f"okf_version: {_q(OKF_VERSION)}", "---", "", f"# {title}", ""]
     for name, link, description in entries:
-        lines.append(f"* [{name}]({link}) - {description}" if description else f"* [{name}]({link})")
+        label = name.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+        lines.append(f"* [{label}]({link}) - {description}" if description else f"* [{label}]({link})")
     return "\n".join(lines) + "\n"

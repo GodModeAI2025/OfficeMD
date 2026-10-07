@@ -1,12 +1,12 @@
-"""Die Abläufe hinter den CLI-Befehlen: check, embed, sync, restore, render, export, strip."""
+"""Die Abläufe hinter den CLI-Befehlen: check, embed, restore, render, export, strip."""
 from __future__ import annotations
 
 import json
 import re
 import unicodedata
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__, converter, ooxml
 
@@ -18,7 +18,7 @@ LOST = "lost"
 UNREADABLE = "unreadable"
 
 STATE_LABELS = {
-    NEVER: "Nie vorhanden",
+    NEVER: "Nicht eingebettet",
     CURRENT: "Aktuell",
     STALE: "Veraltet",
     LOST: "Verloren",
@@ -39,10 +39,6 @@ class OpError(Exception):
     """Fehler, den das CLI als Meldung ohne Traceback ausgibt."""
 
 
-def now() -> str:
-    return converter.now()
-
-
 def sidecar_dir(path: Path) -> Path:
     return path.with_name(path.name + SIDECAR_SUFFIX)
 
@@ -54,31 +50,29 @@ def _write_text(path: Path, text: str) -> None:
 
 
 def _saving_app(pkg: ooxml.Package) -> Optional[str]:
-    if not pkg.has("docProps/app.xml"):
-        return None
-    try:
-        root = pkg.xml("docProps/app.xml")
-    except ooxml.OoxmlError:
-        return None
-    for child in root:
+    root = pkg.optional_xml("docProps/app.xml")
+    for child in root if root is not None else []:
         if child.tag.endswith("}Application"):
             return (child.text or "").strip() or None
     return None
 
 
-def _convert(path: Path) -> converter.Conversion:
-    try:
-        return converter.convert(path)
-    except converter.ConversionError as exc:
-        raise OpError(str(exc)) from exc
-
-
 # -- check ---------------------------------------------------------------------
 
-def check(path: Path) -> Dict[str, Any]:
+@dataclass
+class Inspection:
+    """Ergebnis einer Prüfung samt Umwandlung und Part, damit Folgeschritte nichts wiederholen."""
+
+    report: Dict[str, Any]
+    conversion: Optional[converter.Conversion] = None
+    part: Optional[ooxml.KnowledgePart] = None
+    package: Optional[ooxml.Package] = None
+
+
+def inspect(path: Path) -> Inspection:
     path = Path(path)
     report: Dict[str, Any] = {"file": str(path), "state": None, "label": None, "locked": False,
-                              "mode": None, "warnings": []}
+                              "embedded": False, "warnings": []}
     lock = ooxml.existing_lock(path)
     if lock is not None:
         report["locked"] = True
@@ -93,7 +87,8 @@ def check(path: Path) -> Dict[str, Any]:
         part = pkg.find_knowledge()
         props = pkg.read_props()
     except ooxml.OoxmlError as exc:
-        return _finish(report, UNREADABLE, str(exc))
+        return Inspection(_finish(report, UNREADABLE, str(exc)))
+    result = Inspection(report, part=part, package=pkg)
 
     app = _saving_app(pkg)
     if app:
@@ -102,34 +97,33 @@ def check(path: Path) -> Dict[str, Any]:
             report["warnings"].append(
                 f"Zuletzt gespeichert mit {app}. Solche Programme entfernen Custom-XML-Parts oft.")
 
+    # Verlust hängt nicht an der Umwandlung: erst Part und Einträge ansehen.
+    if part is None and (props.get("Fingerprint") or props.get("PartGuid")):
+        hint = " Wiederherstellen mit: carrymark restore." if report["sidecar"]["restorable"] else ""
+        report["possible_causes"] = list(PART_KILLERS)
+        _finish(report, LOST, "Der Markdown-Part fehlt, der Fingerprint-Eintrag in docProps/custom.xml "
+                              "ist aber noch da. Beim Speichern oder Bearbeiten wurde der Part entfernt." + hint)
     try:
-        conv = converter.convert(path)
+        conv = converter.convert(path, pkg)
     except converter.ConversionError as exc:
-        return _finish(report, UNREADABLE, str(exc))
-    report["fingerprint"] = {"current": conv.fingerprint, "embedded": None, "props": props.get("Fingerprint")}
+        if report["state"] is None:
+            _finish(report, UNREADABLE, str(exc))
+        return result
+    result.conversion = conv
+    report["fingerprint"] = {"current": conv.fingerprint, "props": props.get("Fingerprint"),
+                             "embedded": part.payload.fingerprint if part else None}
     report["converter"] = conv.converter
     report["characters"] = len(conv.body)
-
+    if report["state"] is not None:
+        return result
     if part is None:
-        if props.get("Fingerprint") or props.get("PartGuid"):
-            hint = " Wiederherstellen mit: carrymark restore." if report["sidecar"]["restorable"] else ""
-            report["possible_causes"] = list(PART_KILLERS)
-            return _finish(report, LOST,
-                           "Der Markdown-Part fehlt, der Fingerprint-Eintrag in docProps/custom.xml "
-                           "ist aber noch da. Beim Speichern oder Bearbeiten wurde der Part entfernt." + hint)
-        return _finish(report, NEVER, "Noch kein Markdown eingebettet.")
+        _finish(report, NEVER, "Noch kein Markdown eingebettet.")
+        return result
 
-    payload = part.payload
-    report["mode"] = "markdown"
-    report["fingerprint"]["embedded"] = payload.fingerprint
-    report["part"] = {
-        "item": part.item_name,
-        "item_props": part.props_name,
-        "guid": part.guid,
-        "registered": part.registered,
-        "embedded_at": payload.embedded_at,
-        "tool_version": payload.tool_version,
-    }
+    report["embedded"] = bool(part.payload.markdown)
+    report["part"] = {"item": part.item_name, "item_props": part.props_name, "guid": part.guid,
+                      "registered": part.registered, "embedded_at": part.payload.embedded_at,
+                      "tool_version": part.payload.tool_version}
     if not part.registered:
         report["warnings"].append("Part ist nicht vom Hauptpart aus verknüpft. Office könnte ihn verwerfen.")
     if not part.props_name or not part.guid:
@@ -140,10 +134,15 @@ def check(path: Path) -> Dict[str, Any]:
     elif props.get("PartGuid") and part.guid and props["PartGuid"] != part.guid:
         report["warnings"].append("GUID in docProps/custom.xml passt nicht zum Part.")
 
-    if payload.fingerprint == conv.fingerprint:
-        return _finish(report, CURRENT, "Eingebettetes Markdown passt zum aktuellen Inhalt.")
-    return _finish(report, STALE, "Der Inhalt hat sich seit dem Einbetten geändert. "
-                                  "Neu einbetten mit carrymark sync.")
+    if part.payload.fingerprint == conv.fingerprint:
+        _finish(report, CURRENT, "Eingebettetes Markdown passt zum aktuellen Inhalt.")
+    else:
+        _finish(report, STALE, "Der Inhalt hat sich seit dem Einbetten geändert. Neu einbetten mit carrymark sync.")
+    return result
+
+
+def check(path: Path) -> Dict[str, Any]:
+    return inspect(path).report
 
 
 def _finish(report: Dict[str, Any], state: str, message: str) -> Dict[str, Any]:
@@ -155,9 +154,9 @@ def _finish(report: Dict[str, Any], state: str, message: str) -> Dict[str, Any]:
 
 # -- embed, restore, render, strip -------------------------------------------------
 
-def _save_payload(path: Path, payload: ooxml.Payload) -> str:
+def _save_payload(path: Path, payload: ooxml.Payload, pkg: Optional[ooxml.Package] = None) -> str:
     try:
-        pkg = ooxml.Package(path)
+        pkg = pkg or ooxml.Package(path)
         guid = pkg.embed(payload)
         pkg.save()
     except ooxml.OoxmlError as exc:
@@ -165,31 +164,33 @@ def _save_payload(path: Path, payload: ooxml.Payload) -> str:
     return guid
 
 
-def embed(path: Path) -> Dict[str, Any]:
-    """Markdown mit markitdown erzeugen, als OKF-Dokument einbetten, Sidecar schreiben."""
+def embed(path: Path, conv: Optional[converter.Conversion] = None,
+          pkg: Optional[ooxml.Package] = None) -> Dict[str, Any]:
+    """Markdown als OKF-Dokument einbetten und die Sicherung schreiben.
+
+    ``conv``/``pkg`` aus einer vorherigen Prüfung derselben Datei sparen eine Umwandlung.
+    """
     path = Path(path)
     lock = ooxml.existing_lock(path)
     if lock is not None:
         raise OpError(f"Office hat die Datei geöffnet ({lock.name}); bitte zuerst schließen.")
-    conv = _convert(path)
-    stamp = now()
+    if conv is None:
+        try:
+            pkg = pkg or ooxml.Package(path)
+            conv = converter.convert(path, pkg)
+        except (ooxml.OoxmlError, converter.ConversionError) as exc:
+            raise OpError(str(exc)) from exc
+    stamp = converter.now()
     document = conv.document(path.name, stamp)
-    payload = ooxml.Payload(mode="markdown", fingerprint=conv.fingerprint, embedded_at=stamp,
-                            markdown=document, tool_version=f"carrymark/{__version__} {conv.converter}")
-    guid = _save_payload(path, payload)
-    after = _convert(path)
-    if after.fingerprint != conv.fingerprint:  # pragma: no cover - würde einen Fehler im Paketcode bedeuten
-        raise OpError("Nach dem Einbetten liefert markitdown einen anderen Inhalt.")
+    payload = ooxml.Payload(fingerprint=conv.fingerprint, embedded_at=stamp, markdown=document,
+                            tool_version=f"carrymark/{__version__} {conv.converter}")
+    guid = _save_payload(path, payload, pkg)
     side = sidecar_dir(path)
     side.mkdir(exist_ok=True)
     _write_text(side / "markdown.md", document)
     _write_text(side / "embed.json", json.dumps({
-        "file": path.name,
-        "fingerprint": conv.fingerprint,
-        "guid": guid,
-        "embedded_at": stamp,
-        "converter": conv.converter,
-        "tool_version": __version__,
+        "file": path.name, "fingerprint": conv.fingerprint, "guid": guid, "embedded_at": stamp,
+        "converter": conv.converter, "tool_version": __version__,
     }, ensure_ascii=False, indent=2) + "\n")
     return {"file": str(path), "fingerprint": conv.fingerprint, "guid": guid,
             "sidecar": str(side), "converter": conv.converter, "characters": len(conv.body)}
@@ -200,29 +201,24 @@ def restore(path: Path) -> Dict[str, Any]:
     side = sidecar_dir(path)
     meta_path, md_path = side / "embed.json", side / "markdown.md"
     if not meta_path.is_file() or not md_path.is_file():
-        raise OpError(f"Kein vollständiger Sidecar zum Wiederherstellen ({side}).")
+        raise OpError(f"Keine vollständige Sicherung zum Wiederherstellen ({side}).")
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     payload = ooxml.Payload(
-        mode="markdown", fingerprint=meta["fingerprint"],
-        embedded_at=meta.get("embedded_at", now()), markdown=md_path.read_text(encoding="utf-8"),
+        fingerprint=meta["fingerprint"], embedded_at=meta.get("embedded_at", converter.now()),
+        markdown=md_path.read_text(encoding="utf-8"),
         tool_version=f"carrymark/{meta.get('tool_version', __version__)} {meta.get('converter', '')}".strip())
     guid = _save_payload(path, payload)
-    return {"file": str(path), "restored_from": str(side), "guid": guid}
+    return {"file": str(path), "restored_from": str(side), "guid": guid, "fingerprint": meta["fingerprint"]}
 
 
-def embedded_markdown(path: Path) -> Optional[str]:
+def render(path: Path) -> str:
     try:
         part = ooxml.Package(Path(path)).find_knowledge()
     except ooxml.OoxmlError as exc:
         raise OpError(f"Nicht lesbar: {exc}") from exc
-    return part.payload.markdown if part else None
-
-
-def render(path: Path) -> str:
-    text = embedded_markdown(path)
-    if text is None:
+    if part is None or not part.payload.markdown:
         raise OpError("Kein eingebettetes Markdown.")
-    return text
+    return part.payload.markdown
 
 
 def strip(path: Path, *, keep_props: bool = False) -> bool:
@@ -245,70 +241,64 @@ def _slug(value: str) -> str:
 
 def document_for(path: Path) -> str:
     """Eingebettetes OKF-Dokument, wenn aktuell; sonst frisch umgewandelt (ohne einzubetten)."""
-    report = check(path)
-    if report["state"] == CURRENT:
-        text = embedded_markdown(path)
-        if text:
-            return text
-    if report["state"] == UNREADABLE:
-        raise OpError(report["message"])
-    return _convert(path).document(Path(path).name)
+    found = inspect(path)
+    if found.report["state"] == CURRENT and found.part and found.part.payload.markdown:
+        return found.part.payload.markdown
+    if found.conversion is None:
+        raise OpError(found.report["message"])
+    return found.conversion.document(Path(path).name)
 
 
 def export(paths: List[Path], out_dir: Optional[Path] = None, *, okf: bool = False) -> List[Dict[str, Any]]:
-    """Markdown neben die Dateien schreiben oder als OKF-Bundle in einen Ordner."""
-    files = office_files(paths)
-    results: List[Dict[str, Any]] = []
-    if okf:
-        if out_dir is None:
-            raise OpError("Für ein OKF-Bundle bitte einen Zielordner angeben (-o).")
+    """Markdown neben die Dateien schreiben oder als Bundle (OKF) in einen Ordner."""
+    if okf and out_dir is None:
+        raise OpError("Für ein OKF-Bundle bitte einen Zielordner angeben (-o).")
+    if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
-        entries = []
-        used = set()
-        for f in files:
-            try:
-                text = document_for(f)
-            except OpError as exc:
-                results.append({"file": str(f), "error": str(exc)})
-                continue
-            base = _slug(f.stem + "-" + f.suffix.lstrip("."))
-            name, n = base, 2
-            while name in used:
-                name, n = f"{base}-{n}", n + 1
-            used.add(name)
-            target = out_dir / f"{name}.md"
-            _write_text(target, text)
-            entries.append((f.name, f"/{name}.md", f"{f.suffix.lstrip('.').upper()}-Dokument"))
-            results.append({"file": str(f), "markdown": str(target)})
-        _write_text(out_dir / "index.md", converter.okf_index(entries))
-        return results
-    for f in files:
+    results: List[Dict[str, Any]] = []
+    entries: List[Tuple[str, str, str]] = []
+    used: set = set()
+    for f in office_files(paths)[0]:
         try:
             text = document_for(f)
         except OpError as exc:
             results.append({"file": str(f), "error": str(exc)})
             continue
-        target = (out_dir / (f.name + ".md")) if out_dir else f.with_name(f.name + ".md")
-        if out_dir:
-            out_dir.mkdir(parents=True, exist_ok=True)
+        # Zielname eindeutig halten, auch bei gleichnamigen Dateien aus verschiedenen Ordnern.
+        stem = _slug(f"{f.stem}-{f.suffix.lstrip('.')}") if okf else f.name
+        name, n = stem, 2
+        while out_dir and name in used:
+            name, n = f"{stem}-{n}", n + 1
+        used.add(name)
+        if okf:
+            target = out_dir / f"{name}.md"
+            entries.append((f.name, f"/{name}.md", f"{f.suffix.lstrip('.').upper()}-Dokument"))
+        else:
+            target = (out_dir / f"{name}.md") if out_dir else f.with_name(f.name + ".md")
         _write_text(target, text)
         results.append({"file": str(f), "markdown": str(target)})
+    if okf:
+        _write_text(out_dir / "index.md", converter.okf_index(entries))
     return results
 
 
-# -- Verzeichnis-Scan ---------------------------------------------------------------
+# -- Dateiauswahl -------------------------------------------------------------------
 
-def office_files(paths: List[Path], recursive: bool = True) -> List[Path]:
+def _is_candidate(f: Path) -> bool:
+    return (f.suffix.lower() in ooxml.SUPPORTED_SUFFIXES
+            and not f.name.startswith(("~$", ".cm-"))
+            and not any(part.endswith((SIDECAR_SUFFIX, ".officemd", ".knowledge")) for part in f.parts))
+
+
+def office_files(paths: List[Path]) -> Tuple[List[Path], List[Path]]:
+    """(verarbeitbare Office-Dateien, ausdrücklich genannte, aber nicht unterstützte Dateien)."""
     found: List[Path] = []
-    for p in paths:
-        p = Path(p)
+    ignored: List[Path] = []
+    for p in map(Path, paths):
         if p.is_dir():
-            pattern = "**/*" if recursive else "*"
-            for f in sorted(p.glob(pattern)):
-                if (f.is_file() and f.suffix.lower() in ooxml.SUPPORTED_SUFFIXES
-                        and not f.name.startswith(("~$", ".cm-", ".zp-"))
-                        and not any(part.endswith((SIDECAR_SUFFIX, ".knowledge")) for part in f.parts)):
-                    found.append(f)
-        else:
+            found += [f for f in sorted(p.rglob("*")) if f.is_file() and _is_candidate(f)]
+        elif p.suffix.lower() in ooxml.SUPPORTED_SUFFIXES:
             found.append(p)
-    return found
+        else:
+            ignored.append(p)
+    return found, ignored

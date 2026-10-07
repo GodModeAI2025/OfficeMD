@@ -34,8 +34,7 @@ from xml.sax.saxutils import quoteattr
 NS_CM = "urn:carrymark:knowledge:1"
 # Ältere Fassungen hießen OfficeMD. Ihre Parts und Einträge werden weiter erkannt;
 # sync ersetzt sie beim nächsten Einbetten durch das aktuelle Format.
-LEGACY_NAMESPACES = ("urn:officemd:knowledge:1",)
-LEGACY_PROP_PREFIXES = ("OfficeMD",)
+NAMESPACES = (NS_CM, "urn:officemd:knowledge:1")
 NS_PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 NS_CT = "http://schemas.openxmlformats.org/package/2006/content-types"
 NS_DS = "http://schemas.openxmlformats.org/officeDocument/2006/customXml"
@@ -54,7 +53,8 @@ CT_XML = "application/xml"
 
 FMTID_USER_DEFINED = "{D5CDD505-2E9C-101B-9397-08002B2CF9AE}"
 PROP_PREFIX = "Carrymark"
-PROP_NAMES = ("Fingerprint", "Version", "PartGuid", "Mode", "EmbeddedAt")
+PROP_PREFIXES = (PROP_PREFIX, "OfficeMD")  # aktueller Name zuerst, dann ältere
+PROP_NAMES = ("Fingerprint", "Version", "PartGuid", "EmbeddedAt")
 PAYLOAD_VERSION = "1"
 
 XML_DECLARATION = b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
@@ -87,14 +87,11 @@ class ConcurrentModificationError(OoxmlError):
 
 @dataclass
 class Payload:
-    """Inhalt des Carrymark-Parts."""
+    """Inhalt des Carrymark-Parts: ein Markdown-Dokument mit Fingerprint."""
 
-    mode: str  # "raw" oder "graph"
     fingerprint: str
     embedded_at: str
     markdown: Optional[str] = None
-    graph_json: Optional[str] = None
-    source_id: Optional[str] = None
     tool_version: str = ""
 
 
@@ -300,6 +297,15 @@ class Package:
     def xml(self, name: str) -> ET.Element:
         return _parse_xml(name, self.read(name))
 
+    def optional_xml(self, name: str) -> Optional[ET.Element]:
+        """Optionaler Part (etwa docProps/core.xml); fehlt oder kaputt ergibt None."""
+        if not self.has(name):
+            return None
+        try:
+            return self.xml(name)
+        except OoxmlError:
+            return None
+
     # -- Relationships -----------------------------------------------------
 
     def relationships(self, source_part: str) -> List[ET.Element]:
@@ -398,18 +404,19 @@ class Package:
         return None
 
     def read_props(self) -> Dict[str, str]:
+        """Eigene Einträge aus docProps/custom.xml; der aktuelle Präfix hat Vorrang."""
         part = self.custom_props_part()
         if part is None:
             return {}
-        result: Dict[str, str] = {}
+        found: Dict[str, Dict[str, str]] = {prefix: {} for prefix in PROP_PREFIXES}
         for prop in self.xml(part).iter(f"{{{NS_CUSTOM_PROPS}}}property"):
             name = prop.get("name", "")
-            for prefix in (PROP_PREFIX,) + LEGACY_PROP_PREFIXES:
-                if name.startswith(prefix):
-                    key = name[len(prefix):]
-                    if prefix == PROP_PREFIX or key not in result:
-                        result[key] = "".join(child.text or "" for child in prop)
-                    break
+            prefix = next((p for p in PROP_PREFIXES if name.startswith(p)), None)
+            if prefix:
+                found[prefix][name[len(prefix):]] = "".join(child.text or "" for child in prop)
+        result: Dict[str, str] = {}
+        for prefix in reversed(PROP_PREFIXES):
+            result.update(found[prefix])
         return result
 
     def write_props(self, values: Dict[str, str]) -> None:
@@ -440,17 +447,6 @@ class Package:
             ET.SubElement(prop, f"{{{NS_VT}}}lpwstr").text = value
         self.write(part, _serialize(root, NS_CUSTOM_PROPS))
 
-    def remove_legacy_props(self) -> None:
-        part = self.custom_props_part()
-        if part is None:
-            return
-        root = self.xml(part)
-        legacy = [p for p in list(root) if p.get("name", "").startswith(LEGACY_PROP_PREFIXES)]
-        for prop in legacy:
-            root.remove(prop)
-        if legacy:
-            self.write(part, _serialize(root, NS_CUSTOM_PROPS))
-
     def remove_props(self) -> None:
         part = self.custom_props_part()
         if part is None:
@@ -458,7 +454,7 @@ class Package:
         root = self.xml(part)
         changed = False
         for prop in list(root):
-            if prop.get("name", "").startswith((PROP_PREFIX,) + LEGACY_PROP_PREFIXES):
+            if prop.get("name", "").startswith(PROP_PREFIXES):
                 root.remove(prop)
                 changed = True
         if changed:
@@ -479,21 +475,17 @@ class Package:
             if not ITEM_NAME.match(name):
                 continue
             data = self.read(name)
-            namespace = next((ns for ns in (NS_CM,) + LEGACY_NAMESPACES if ns.encode() in data), None)
+            namespace = next((ns for ns in NAMESPACES if ns.encode() in data), None)
             if namespace is None:
                 continue
             root = _parse_xml(name, data)
             if root.tag != f"{{{namespace}}}knowledge":
                 continue
-            graph = root.find(f"{{{namespace}}}graph")
             markdown = root.find(f"{{{namespace}}}markdown")
             payload = Payload(
-                mode=root.get("mode", "raw"),
                 fingerprint=root.get("fingerprint", ""),
                 embedded_at=root.get("embedded-at", ""),
-                source_id=root.get("source-id"),
                 tool_version=root.get("tool-version", ""),
-                graph_json=graph.text if graph is not None else None,
                 markdown=markdown.text if markdown is not None else None,
             )
             props_name = self._item_props_name(name)
@@ -535,12 +527,11 @@ class Package:
         if not self.has_xml_default():
             self.ensure_override(item_name, CT_XML)
         self.add_relationship(self.main_part(), REL_CUSTOM_XML, item_name)
-        self.remove_legacy_props()
+        self.remove_props()  # auch Einträge älterer Fassungen (OfficeMD)
         self.write_props({
             "Fingerprint": payload.fingerprint,
             "Version": PAYLOAD_VERSION,
             "PartGuid": guid,
-            "Mode": payload.mode,
             "EmbeddedAt": payload.embedded_at,
         })
         return guid
@@ -608,17 +599,13 @@ class Package:
 def _item_xml(payload: Payload) -> bytes:
     attrs = {
         "version": PAYLOAD_VERSION,
-        "mode": payload.mode,
+        "mode": "markdown",
         "fingerprint": payload.fingerprint,
         "embedded-at": payload.embedded_at,
         "tool-version": payload.tool_version,
     }
-    if payload.source_id:
-        attrs["source-id"] = payload.source_id
     attr_text = "".join(f" {k}={quoteattr(v)}" for k, v in attrs.items())
     parts = [f'<cm:knowledge xmlns:cm="{NS_CM}"{attr_text}>']
-    if payload.graph_json is not None:
-        parts.append(f'<cm:graph format="knowledge.json">{_cdata(payload.graph_json)}</cm:graph>')
     if payload.markdown is not None:
         parts.append(f"<cm:markdown>{_cdata(payload.markdown)}</cm:markdown>")
     parts.append("</cm:knowledge>")

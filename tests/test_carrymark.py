@@ -90,7 +90,7 @@ def test_embed_registers_part_like_office(docx: Path) -> None:
         assert "relationships/customXml" in z.read("word/_rels/document.xml.rels").decode()
         assert "custom-properties" in z.read("_rels/.rels").decode()
     part = ooxml.Package(docx).find_knowledge()
-    assert part.registered and part.guid and part.payload.mode == "markdown"
+    assert part.registered and part.guid
     assert part.payload.markdown.startswith("---\ntype:")
     assert ooxml.Package(docx).read_props()["PartGuid"] == part.guid
 
@@ -137,7 +137,7 @@ def test_foreign_custom_props_survive_strip(workdir: Path) -> None:
 
 def test_cdata_terminator_roundtrips(docx: Path) -> None:
     pkg = ooxml.Package(docx)
-    pkg.embed(ooxml.Payload(mode="markdown", fingerprint="f", embedded_at="t", markdown="a ]]> b"))
+    pkg.embed(ooxml.Payload(fingerprint="f", embedded_at="t", markdown="a ]]> b"))
     pkg.save()
     assert ooxml.Package(docx).find_knowledge().payload.markdown == "a ]]> b"
 
@@ -278,3 +278,53 @@ def test_legacy_officemd_part_is_recognized_and_migrated(docx: Path) -> None:
     assert b"urn:carrymark:knowledge:1" in migrated.read(part.item_name)
     custom = migrated.read("docProps/custom.xml").decode()
     assert "OfficeMD" not in custom and "CarrymarkPartGuid" in custom
+
+
+# -- Vereinfachungen aus /simplify und /code-review --------------------------------------
+
+def test_lost_is_detected_even_if_conversion_fails(docx: Path, monkeypatch) -> None:
+    ops.embed(docx)
+    ops.strip(docx, keep_props=True)
+
+    def broken(*_args, **_kwargs):
+        raise converter.ConversionError("python-pptx kann das nicht lesen")
+
+    monkeypatch.setattr(converter, "convert", broken)
+    report = ops.check(docx)
+    assert report["state"] == ops.LOST and report["sidecar"]["restorable"]
+
+
+def test_sync_converts_each_file_once(docx: Path, monkeypatch) -> None:
+    calls = []
+    original = converter.convert
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(converter, "convert", counting)
+    assert sync.sync_file(docx)["after"] == ops.CURRENT
+    assert len(calls) == 1
+    assert ops.check(docx)["state"] == ops.CURRENT
+
+
+def test_office_files_ignores_unsupported_paths(workdir: Path, docx: Path) -> None:
+    pdf = workdir / "Notizen.pdf"
+    pdf.write_bytes(b"%PDF")
+    (workdir / "Bericht.docx.carrymark").mkdir()
+    files, ignored = ops.office_files([workdir, pdf])
+    assert files == [docx] and ignored == [pdf]
+
+
+def test_export_keeps_same_named_files_apart(workdir: Path) -> None:
+    for folder in ("a", "b"):
+        (workdir / folder).mkdir()
+        make_docx(workdir / folder / "Bericht.docx", [f"Text {folder}"])
+    out = workdir / "out"
+    results = ops.export([workdir / "a", workdir / "b"], out)
+    assert sorted(Path(r["markdown"]).name for r in results) == ["Bericht.docx-2.md", "Bericht.docx.md"]
+
+
+def test_okf_index_escapes_brackets() -> None:
+    index = converter.okf_index([("Plan [v2].docx", "/plan-v2-docx.md", "DOCX-Dokument")])
+    assert "* [Plan \\[v2\\].docx](/plan-v2-docx.md)" in index

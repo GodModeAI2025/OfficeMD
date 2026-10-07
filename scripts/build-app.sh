@@ -74,7 +74,7 @@ step "Python $PYTHON_VERSION einbetten"
 UV_PYTHON_PREFERENCE=only-managed uv python install "$PYTHON_VERSION" --quiet
 # Echte Installation, nicht die .venv des Projekts: ohne Projektbezug suchen, Symlinks auflösen.
 PY_SRC="$(cd / && UV_PYTHON_PREFERENCE=only-managed uv python find --no-project "$PYTHON_VERSION")"
-PY_REAL="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$PY_SRC")"
+PY_REAL="$(realpath "$PY_SRC")"
 PY_HOME="$(cd "$(dirname "$PY_REAL")/.." && pwd)"
 case "$PY_HOME" in *"/.venv"*) echo "Python-Installation nicht gefunden ($PY_HOME)" >&2; exit 1;; esac
 ditto "$PY_HOME" "$RES/python"
@@ -103,7 +103,7 @@ chmod +x "$RES/bin/carrymark"
 
 step "Symlinks prüfen"
 find "$APP" -type l | while read -r link; do
-  target="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$link")"
+  target="$(realpath "$link")"
   case "$target" in "$APP"/*) ;; *) echo "Symlink zeigt aus dem Bundle: $link -> $target" >&2; exit 1;; esac
 done
 
@@ -115,13 +115,13 @@ case "$IDENTITY_NAME" in
   "ad hoc") ;;
   *) RUNTIME=(--options runtime --timestamp=none) ;;
 esac
-# Erst alle Mach-O-Dateien im Python, dann das Bundle.
-find "$RES/python" -type f \( -name "*.so" -o -name "*.dylib" -o -perm -u+x \) -print0 |
-  while IFS= read -r -d '' f; do
-    if file -b "$f" | grep -q "Mach-O"; then
-      codesign --force --sign "$SIGN_IDENTITY" ${RUNTIME[@]+"${RUNTIME[@]}"} --entitlements "$ENTITLEMENTS" "$f" 2>/dev/null
-    fi
-  done
+# Erst alle Binaries im Python (parallel), dann das Bundle.
+export SIGN_IDENTITY ENTITLEMENTS
+SIGN_ARGS="${RUNTIME[*]-}"
+{ find "$RES/python" -type f \( -name "*.so" -o -name "*.dylib" \) -print0
+  find "$RES/python/bin" -type f -name "python3*" -print0; } |
+  xargs -0 -n 16 -P "$(sysctl -n hw.ncpu)" \
+    sh -c 'codesign --force --sign "$SIGN_IDENTITY" $0 --entitlements "$ENTITLEMENTS" "$@" 2>/dev/null' "$SIGN_ARGS"
 codesign --force --sign "$SIGN_IDENTITY" ${RUNTIME[@]+"${RUNTIME[@]}"} --entitlements "$ENTITLEMENTS" "$APP"
 
 step "Prüfen"

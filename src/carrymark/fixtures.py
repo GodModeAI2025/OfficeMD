@@ -102,7 +102,8 @@ _GROUP = ('<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvG
 
 def _shape(shape_id: int, name: str, paragraphs: str, notes: bool = False) -> str:
     placeholder = '<p:ph type="body" idx="1"/>' if notes else ""
-    return (f'<p:sp><p:nvSpPr><p:cNvPr id="{shape_id}" name="{name}"/><p:cNvSpPr{"" if notes else " txBox=\"1\""}/>'
+    textbox = "" if notes else ' txBox="1"'  # Folienformen als Textbox, sonst erkennt python-pptx sie nicht
+    return (f'<p:sp><p:nvSpPr><p:cNvPr id="{shape_id}" name="{name}"/><p:cNvSpPr{textbox}/>'
             f"<p:nvPr>{placeholder}</p:nvPr></p:nvSpPr><p:spPr/>"
             f"<p:txBody><a:bodyPr/><a:lstStyle/>{paragraphs}</p:txBody></p:sp>")
 

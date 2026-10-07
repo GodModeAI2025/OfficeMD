@@ -5,9 +5,8 @@ struct FileReport: Decodable, Identifiable, Hashable {
     var id: String { file }
     let file: String
     let state: String
-    let label: String
     let message: String
-    let mode: String?
+    let embedded: Bool
     let locked: Bool
     let warnings: [String]
     let possibleCauses: [String]?
@@ -20,23 +19,10 @@ struct FileReport: Decodable, Identifiable, Hashable {
     struct Part: Decodable, Hashable {
         let embeddedAt: String?
         let guid: String?
-        let registered: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case guid, registered
+            case guid
             case embeddedAt = "embedded_at"
-        }
-    }
-
-    struct Counts: Decodable, Hashable {
-        let verified: Int
-        let notFound: Int
-        let unverifiable: Int
-
-        enum CodingKeys: String, CodingKey {
-            case verified
-            case notFound = "not_found"
-            case unverifiable
         }
     }
 
@@ -47,7 +33,7 @@ struct FileReport: Decodable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case file, state, label, message, mode, locked, warnings, sidecar, part, characters, converter
+        case file, state, message, embedded, locked, warnings, sidecar, part, characters, converter
         case possibleCauses = "possible_causes"
         case savedBy = "saved_by"
     }
@@ -59,9 +45,20 @@ struct FileReport: Decodable, Identifiable, Hashable {
 
     /// Datum der Einbettung, lokal formatiert.
     var embeddedDate: String? {
-        guard let raw = part?.embeddedAt, let date = ISO8601DateFormatter().date(from: raw) else { return nil }
+        guard let raw = part?.embeddedAt, let date = try? Date(raw, strategy: .iso8601) else { return nil }
         return date.formatted(date: .abbreviated, time: .shortened)
     }
+}
+
+/// Ein Eintrag aus `carrymark sync --json`.
+struct SyncResult: Decodable, Identifiable {
+    var id: String { file }
+    let file: String
+    let action: String
+    let message: String
+    let after: String?
+
+    var fileName: String { (file as NSString).lastPathComponent }
 }
 
 enum CLIError: LocalizedError {
@@ -76,17 +73,4 @@ enum CLIError: LocalizedError {
             return message
         }
     }
-}
-
-/// Ein Eintrag aus `carrymark sync --json`.
-struct SyncResult: Decodable, Identifiable {
-    var id: String { file }
-    let file: String
-    let action: String
-    let message: String
-    let before: String?
-    let after: String?
-    let problems: [String]?
-
-    var fileName: String { (file as NSString).lastPathComponent }
 }

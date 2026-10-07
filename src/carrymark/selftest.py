@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from . import __version__, fixtures, ooxml, ops
+from . import __version__, converter, fixtures, ooxml, ops
 
 APPS = {
     "word": {"name": "Microsoft Word", "bundle": "com.microsoft.Word", "suffix": ".docx"},
@@ -243,7 +243,7 @@ def main(office: bool, apps: List[str], outdir: Path, keep: bool = False) -> int
                   f"Zustand {ops.STATE_LABELS[r['state_after_save']]}, Markdown {r.get('markdown_after_save', '-')}")
         ok &= bool(r.get("ok"))
     path = _write_report(outdir, {"tool_version": __version__, "macos": platform.mac_ver()[0],
-                                  "date": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                  "date": converter.now(),
                                   "office": results})
     print(f"Bericht: {path}")
     return 0 if ok else 1

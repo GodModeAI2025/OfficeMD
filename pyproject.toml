@@ -8,7 +8,8 @@ version = "0.2.0"
 description = "Markdown (via microsoft/markitdown) in DOCX, XLSX und PPTX einbetten und aktuell halten"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = ["markitdown[docx,xlsx,pptx]>=0.1.8"]
+# Fest gepinnt: der Fingerprint hängt an markitdowns Ausgabe; ein Update soll bewusst passieren.
+dependencies = ["markitdown[docx,xlsx,pptx]==0.1.8"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]

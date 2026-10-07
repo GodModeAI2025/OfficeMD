@@ -24,13 +24,22 @@ def _print_check(report: dict) -> None:
         print(f"  Mögliche Ursache: {cause}")
 
 
+def _files(paths: List[str]) -> List[Path]:
+    """Verarbeitbare Office-Dateien; nicht unterstützte Pfade werden gemeldet und übergangen."""
+    from . import ops
+
+    files, ignored = ops.office_files([Path(p) for p in paths])
+    for path in ignored:
+        print(f"Übergangen (nur DOCX, XLSX, PPTX): {path}", file=sys.stderr)
+    if not files:
+        raise ops.OpError("Keine DOCX-, XLSX- oder PPTX-Dateien gefunden.")
+    return files
+
+
 def cmd_check(args) -> int:
     from . import ops
 
-    files = ops.office_files([Path(p) for p in args.paths])
-    if not files:
-        print("Keine DOCX-, XLSX- oder PPTX-Dateien gefunden.", file=sys.stderr)
-        return 2
+    files = _files(args.paths)
     reports = [ops.check(f) for f in files]
     if args.json:
         _print_json(reports if len(reports) > 1 or Path(args.paths[0]).is_dir() else reports[0])
@@ -57,7 +66,7 @@ def cmd_convert(args) -> int:
 def cmd_embed(args) -> int:
     from . import ops
 
-    for f in ops.office_files([Path(p) for p in args.paths]):
+    for f in _files(args.paths):
         result = ops.embed(f)
         if args.json:
             _print_json(result)
@@ -69,10 +78,7 @@ def cmd_embed(args) -> int:
 def cmd_sync(args) -> int:
     from . import ops, sync
 
-    files = ops.office_files([Path(p) for p in args.paths])
-    if not files:
-        print("Keine DOCX-, XLSX- oder PPTX-Dateien gefunden.", file=sys.stderr)
-        return 2
+    files = _files(args.paths)
     results = []
     failed = False
     for f in files:
@@ -245,6 +251,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     from . import converter, ops
 
     try:
+        if args.command not in ("setup", "selftest"):
+            converter.markitdown_version()  # fehlt markitdown, einmal melden statt je Datei
         return args.func(args)
     except (ops.OpError, converter.ConversionError, FileNotFoundError) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)

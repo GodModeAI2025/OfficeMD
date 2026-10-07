@@ -21,7 +21,10 @@ struct DetailView: View {
         }
         .scrollContentBackground(.hidden)
         .background(.background)
-        .task(id: report) { preview = await store.preview(for: report) }
+        .task(id: report) {
+            let text = report.status == .unreadable ? nil : try? await store.markdownText(for: report)
+            preview = text.map(stripFrontmatter)
+        }
     }
 
     // MARK: Kopf
@@ -118,7 +121,7 @@ struct DetailView: View {
                 .help("Markdown neben der Datei als .md ablegen")
             }
             Button {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: report.file)])
+                reveal(report.file)
             } label: {
                 Label("Im Finder zeigen", systemImage: "folder")
             }
@@ -142,7 +145,7 @@ struct DetailView: View {
     // MARK: Vorschau
 
     private func previewCard(_ text: String) -> some View {
-        Card(title: report.mode == "markdown" ? "Eingebettetes Markdown" : "Markdown-Vorschau",
+        Card(title: report.embedded ? "Eingebettetes Markdown" : "Markdown-Vorschau",
              symbol: "text.alignleft") {
             let lines = text.components(separatedBy: "\n")
             MarkdownPreview(text: lines.prefix(40).joined(separator: "\n"))
@@ -156,10 +159,7 @@ struct DetailView: View {
                 Text(lines.count > 40 ? "\(lines.count) Zeilen, Auszug" : "\(lines.count) Zeilen")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Vollständig anzeigen") {
-                    store.markdown = MarkdownDocument(title: report.fileName, text: text,
-                                                      embedded: report.mode == "markdown")
-                }
+                Button("Vollständig anzeigen") { Task { await store.showMarkdown(for: report) } }
             }
         }
     }
@@ -203,7 +203,7 @@ struct DetailView: View {
                     GridRow {
                         Text("Sicherung").foregroundStyle(.secondary)
                         Button((path as NSString).lastPathComponent) {
-                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                            reveal(path)
                         }
                         .buttonStyle(.link)
                     }
@@ -230,4 +230,12 @@ struct BulletLabelStyle: LabelStyle {
             configuration.title
         }
     }
+}
+
+/// Markdown ohne die OKF-Frontmatter, für die Vorschau.
+func stripFrontmatter(_ text: String) -> String {
+    guard text.hasPrefix("---\n"),
+          let end = text.range(of: "\n---\n", range: text.index(text.startIndex, offsetBy: 4)..<text.endIndex)
+    else { return text }
+    return String(text[end.upperBound...]).trimmingCharacters(in: .newlines)
 }

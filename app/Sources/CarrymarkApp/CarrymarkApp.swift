@@ -6,7 +6,7 @@ struct CarrymarkApp: App {
     init() {
         // Als SwiftPM-Binary gestartet, braucht die App eine reguläre Aktivierung.
         NSApplication.shared.setActivationPolicy(.regular)
-        if LaunchOptions.parse(CommandLine.arguments).dark {
+        if LaunchOptions.current.dark {
             NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
         }
     }
@@ -53,7 +53,7 @@ final class Store: ObservableObject {
 
     init() {
         // Pfade aus der Kommandozeile übernehmen: Carrymark ~/Dokumente
-        let options = LaunchOptions.parse(CommandLine.arguments)
+        let options = LaunchOptions.current
         roots = options.paths.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             .filter(Self.isSupported)
         guard !roots.isEmpty || options.snapshot != nil else { return }
@@ -77,9 +77,7 @@ final class Store: ObservableObject {
     static let supportedExtensions: Set<String> = ["docx", "xlsx", "pptx"]
 
     static func isSupported(_ url: URL) -> Bool {
-        var isDirectory: ObjCBool = false
-        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
-        return isDirectory.boolValue || supportedExtensions.contains(url.pathExtension.lowercased())
+        isDirectory(url.path) || supportedExtensions.contains(url.pathExtension.lowercased())
     }
 
     func add(_ urls: [URL]) {
@@ -94,16 +92,22 @@ final class Store: ObservableObject {
         Task { await refresh() }
     }
 
-    func refresh() async {
+    /// Prüft alle Wurzeln oder nur die genannten Dateien und führt das Ergebnis zusammen.
+    func refresh(only files: [String]? = nil) async {
         guard !roots.isEmpty else { reports = []; return }
         busy = true
         defer { busy = false }
         do {
-            let fresh = try await cli.check(roots.map(\.path))
+            let fresh = try await cli.check(files ?? roots.map(\.path))
+            var merged = fresh
+            if let files {
+                let touched = Set(files)
+                merged = (reports + skipped).filter { !touched.contains($0.file) } + fresh
+            }
             // Nur bewerten, was Carrymark verarbeiten kann; der Rest wird als übersprungen gemeldet.
             withAnimation(.snappy) {
-                reports = fresh.filter { $0.status != .unreadable }
-                skipped = fresh.filter { $0.status == .unreadable }
+                reports = merged.filter { $0.status != .unreadable }
+                skipped = merged.filter { $0.status == .unreadable }
             }
             if selection == nil || !reports.contains(where: { $0.id == selection }) {
                 selection = reports.sorted(by: Self.order).first?.id
@@ -142,17 +146,25 @@ final class Store: ObservableObject {
         }
         withAnimation(.snappy) { syncStatus = nil }
         busy = false
-        await refresh()
+        // Einzelne Datei: nur sie neu prüfen statt den ganzen Ordner.
+        await refresh(only: paths.count == 1 && !Self.isDirectory(paths[0]) ? paths : nil)
     }
 
-    /// Markdown für die Vorschau: eingebettet, sonst frisch umgewandelt.
-    func preview(for report: FileReport) async -> String? {
-        switch report.status {
-        case .unreadable: return nil
-        case .never, .lost: return try? await cli.action(["convert", "--plain", report.file])
-        case .current, .stale:
-            return try? await cli.action(["render", "--plain", report.file])
-        }
+    static func isDirectory(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// Zwischenspeicher: das Markdown je Prüfstand einer Datei, damit Vorschau und Sheet
+    /// nicht jeweils einen eigenen CLI-Prozess starten.
+    private var markdownCache: [FileReport: String] = [:]
+
+    /// Eingebettet: genau das, was in der Datei steckt. Sonst frisch umgewandelt.
+    func markdownText(for report: FileReport) async throws -> String {
+        if let cached = markdownCache[report] { return cached }
+        let text = try await cli.action([report.embedded ? "render" : "convert", report.file])
+        markdownCache[report] = text
+        return text
     }
 
     func exportMarkdown(for report: FileReport) async {
@@ -160,7 +172,7 @@ final class Store: ObservableObject {
             _ = try await cli.action(["export", report.file])
             let target = URL(fileURLWithPath: report.file + ".md")
             show("\(target.lastPathComponent) gesichert")
-            NSWorkspace.shared.activateFileViewerSelecting([target])
+            reveal(target.path)
         } catch {
             self.error = error.localizedDescription
         }
@@ -179,7 +191,7 @@ final class Store: ObservableObject {
         do {
             _ = try await cli.action(["export", "--okf", "-o", folder.path] + roots.map(\.path))
             show("OKF-Bundle exportiert")
-            NSWorkspace.shared.activateFileViewerSelecting([folder.appendingPathComponent("index.md")])
+            reveal(folder.appendingPathComponent("index.md").path)
         } catch {
             self.error = error.localizedDescription
         }
@@ -196,14 +208,17 @@ final class Store: ObservableObject {
 
     func showMarkdown(for report: FileReport) async {
         do {
-            // Eingebettet: genau das, was in der Datei steckt. Sonst frisch umgewandelt.
-            let embedded = report.status == .current || report.status == .stale
-            let text = try await cli.action([embedded ? "render" : "convert", report.file])
-            markdown = MarkdownDocument(title: report.fileName, text: text, embedded: embedded)
+            let text = try await markdownText(for: report)
+            markdown = MarkdownDocument(title: report.fileName, text: text, embedded: report.embedded)
         } catch {
             self.error = error.localizedDescription
         }
     }
+}
+
+/// Datei oder Ordner im Finder markieren.
+func reveal(_ path: String) {
+    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
 }
 
 struct MarkdownDocument: Identifiable {
@@ -216,6 +231,8 @@ struct MarkdownDocument: Identifiable {
 /// Startargumente: Pfade, dazu für Tests `--select Datei`, `--snapshot bild.png`,
 /// `--settings`, `--markdown` und `--dark`.
 struct LaunchOptions {
+    static let current = parse(CommandLine.arguments)
+
     var paths: [String] = []
     var select: String?
     var snapshot: String?

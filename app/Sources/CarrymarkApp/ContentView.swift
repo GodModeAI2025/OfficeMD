@@ -32,7 +32,7 @@ struct ContentView: View {
         .navigationTitle(store.selected?.fileName ?? "Carrymark")
         .navigationSubtitle(subtitle)
         .fileImporter(isPresented: $importing,
-                      allowedContentTypes: [.folder] + ["docx", "xlsx", "pptx"].compactMap { UTType(filenameExtension: $0) },
+                      allowedContentTypes: [.folder] + Store.supportedExtensions.sorted().compactMap { UTType(filenameExtension: $0) },
                       allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { store.add(urls) }
         }
@@ -43,7 +43,7 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { syncBanner }
         .onReceive(NotificationCenter.default.publisher(for: .carrymarkImport)) { _ in importing = true }
         .onAppear {
-            if LaunchOptions.parse(CommandLine.arguments).settings { openSettings() }
+            if LaunchOptions.current.settings { openSettings() }
         }
         .alert("Das hat nicht geklappt",
                isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
@@ -110,7 +110,7 @@ struct ContentView: View {
         }
         Divider()
         Button("Im Finder zeigen") {
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: report.file)])
+            reveal(report.file)
         }
     }
 
@@ -172,21 +172,24 @@ struct ContentView: View {
                     Text("markitdown wandelt lokal um.").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .floatingGlass(in: Capsule())
-            .padding(.bottom, 20)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .floatingBanner()
         } else if let notice = store.notice {
             Label(notice, systemImage: "checkmark.circle.fill")
                 .font(.callout.weight(.medium))
                 .symbolRenderingMode(.multicolor)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 10)
-                .floatingGlass(in: Capsule())
-                .padding(.bottom, 20)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .floatingBanner()
         }
+    }
+}
+
+extension View {
+    /// Schwebende Meldung am unteren Fensterrand (Liquid Glass ab macOS 26).
+    func floatingBanner() -> some View {
+        padding(.horizontal, 18)
+            .padding(.vertical, 11)
+            .floatingGlass(in: Capsule())
+            .padding(.bottom, 20)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
 

@@ -56,7 +56,7 @@ struct MarkdownSheet: View {
     }
 }
 
-/// Schlanke Vorschau für das Distiller-Markdown: Frontmatter als Metadaten, Überschriften,
+/// Schlanke Vorschau für das Markdown von markitdown: Frontmatter als Metadaten, Überschriften,
 /// Listen und Absätze. Inline-Formatierung über AttributedString.
 struct MarkdownPreview: View {
     let text: String
@@ -95,10 +95,13 @@ struct MarkdownPreview: View {
                 .padding(.bottom, 8)
             }
             ForEach(Array(blocks(parsed.body).enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .line(let line): lineView(line)
-                case .table(let rows): tableView(rows)
+                Group {
+                    switch block {
+                    case .line(let line): lineView(line)
+                    case .table(let rows): tableView(rows)
+                    }
                 }
+                .fixedSize(horizontal: false, vertical: true)  // umbrechen statt kürzen
             }
         }
         .textSelection(.enabled)
@@ -234,11 +237,6 @@ struct SyncResultSheet: View {
                             }
                         }
                         Text(result.message).font(.callout).foregroundStyle(.secondary)
-                        ForEach(result.problems ?? [], id: \.self) { problem in
-                            Label(problem, systemImage: "exclamationmark.circle")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
                     }
                 }
                 .padding(.vertical, 6)

@@ -3,34 +3,32 @@
 | Zustand vorher | Aktion |
 |---|---|
 | Aktuell | nichts |
-| Nie vorhanden, Veraltet | Markdown mit markitdown erzeugen und einbetten |
-| Verloren | aus dem Sidecar wiederherstellen; passt der Inhalt nicht mehr, neu einbetten |
+| Nicht eingebettet, Veraltet | Markdown mit markitdown erzeugen und einbetten |
+| Verloren | aus der Sicherung wiederherstellen; passt der Inhalt nicht mehr, neu einbetten |
 | Nicht lesbar, in Office geöffnet | überspringen |
 
-Alles läuft lokal, ohne Netz.
+Jede Datei wird genau einmal umgewandelt: die Prüfung liefert die Umwandlung, ``embed``
+übernimmt sie. Alles läuft lokal.
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict
 
 from . import ops
 
-Log = Callable[[str], None]
 
-
-def sync_file(path: Path, *, dry_run: bool = False, log: Log = lambda _m: None) -> Dict[str, Any]:
+def sync_file(path: Path, *, dry_run: bool = False) -> Dict[str, Any]:
     path = Path(path)
-    before = ops.check(path)
-    entry: Dict[str, Any] = {"file": str(path), "before": before["state"], "action": None,
-                             "after": before["state"], "message": before["message"]}
+    found = ops.inspect(path)
+    before = found.report
+    state = before["state"]
+    entry: Dict[str, Any] = {"file": str(path), "before": state, "after": state}
 
-    def done(action: str, message: str, after: Optional[str] = None) -> Dict[str, Any]:
-        entry.update(action=action, message=message)
-        entry["after"] = after or ops.check(path)["state"]
+    def done(action: str, message: str, after: str) -> Dict[str, Any]:
+        entry.update(action=action, message=message, after=after)
         return entry
 
-    state = before["state"]
     if state == ops.UNREADABLE:
         return done("skip", f"Übersprungen: {before['message']}", state)
     if before.get("locked"):
@@ -39,22 +37,21 @@ def sync_file(path: Path, *, dry_run: bool = False, log: Log = lambda _m: None) 
         return done("none", "Aktuell, nichts zu tun.", state)
 
     restorable = before["sidecar"]["restorable"]
-    plan = {
-        ops.NEVER: "Markdown einbetten",
-        ops.STALE: "Markdown neu einbetten",
-        ops.LOST: "aus dem Sidecar wiederherstellen" if restorable else "Markdown neu einbetten",
-    }[state]
     if dry_run:
+        plan = {ops.NEVER: "Markdown einbetten", ops.STALE: "Markdown neu einbetten",
+                ops.LOST: "aus der Sicherung wiederherstellen" if restorable else "Markdown neu einbetten"}[state]
         return done("plan", f"Würde {plan}.", state)
 
+    conv = found.conversion
     if state == ops.LOST and restorable:
-        ops.restore(path)
-        log("Aus dem Sidecar wiederhergestellt.")
-        if ops.check(path)["state"] == ops.CURRENT:
-            return done("restore", "Aus dem Sidecar wiederhergestellt.", ops.CURRENT)
-        log("Inhalt hat sich inzwischen geändert, bette neu ein.")
+        restored = ops.restore(path)
+        if conv is not None and restored["fingerprint"] == conv.fingerprint:
+            return done("restore", "Aus der Sicherung wiederhergestellt.", ops.CURRENT)
+        if conv is None:  # Inhalt nicht umwandelbar, aber die Sicherung ist zurück
+            return done("restore", "Aus der Sicherung wiederhergestellt.", ops.STALE)
+        found = ops.inspect(path)  # Paket hat sich durch restore geändert
 
-    result = ops.embed(path)
-    action = "embed" if state == ops.NEVER else "reembed"
+    result = ops.embed(path, found.conversion, found.package)
     verb = "eingebettet" if state == ops.NEVER else "neu eingebettet"
-    return done(action, f"Markdown {verb} ({result['characters']} Zeichen, {result['converter']}).")
+    return done("embed" if state == ops.NEVER else "reembed",
+                f"Markdown {verb} ({result['characters']} Zeichen, {result['converter']}).", ops.CURRENT)
