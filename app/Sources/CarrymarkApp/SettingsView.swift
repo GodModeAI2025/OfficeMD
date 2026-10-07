@@ -1,14 +1,21 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @AppStorage("settingsTab") private var tab = "general"
+
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             GeneralSettingsView()
                 .tabItem { Label("Allgemein", systemImage: "gearshape") }
+                .tag("general")
+            AIUsageView()
+                .tabItem { Label("Mit KI nutzen", systemImage: "sparkles") }
+                .tag("ai")
             AboutView()
                 .tabItem { Label("Über", systemImage: "info.circle") }
+                .tag("about")
         }
-        .frame(width: 560, height: 420)
+        .frame(width: 640, height: 640)
     }
 }
 
@@ -81,5 +88,107 @@ struct AboutView: View {
             }
         }
         .font(.callout)
+    }
+}
+
+/// Hinweise, wie man Dateien mit eingebettetem Markdown an eine KI gibt.
+struct AIUsageView: View {
+    static let officePrompt = """
+    Diese Datei enthält ein von Carrymark eingebettetes Markdown-Abbild ihres Inhalts. \
+    Eine DOCX-, XLSX- oder PPTX-Datei ist ein ZIP-Archiv. Öffne es und suche im Ordner customXml/ \
+    die Datei itemN.xml mit dem Element <cm:knowledge> (Namespace urn:carrymark:knowledge:1). \
+    Das Markdown steht im Element <cm:markdown>. Arbeite mit diesem Markdown statt mit selbst \
+    extrahiertem Text. Die Frontmatter oben nennt Titel, Quelle und Stand; Tabellen sind als \
+    Markdown-Tabellen enthalten, je Excel-Blatt eine.
+    """
+
+    static let pdfPrompt = """
+    Diese PDF trägt einen Anhang namens carrymark.md: ein von Carrymark eingebettetes \
+    Markdown-Abbild ihres Inhalts. Lies diesen Anhang aus (zum Beispiel in Python mit pypdf: \
+    PdfReader(datei).attachments["carrymark.md"][0]) und arbeite mit diesem Markdown statt mit \
+    selbst extrahiertem Text. Die Frontmatter oben nennt Titel, Quelle und Stand.
+    """
+
+    static let codeSnippet = """
+    import re, zipfile
+    with zipfile.ZipFile("Datei.docx") as z:
+        for name in z.namelist():
+            if re.fullmatch(r"customXml/item\\d+\\.xml", name):
+                m = re.search(r"<cm:markdown><!\\[CDATA\\[(.*)\\]\\]></cm:markdown>", z.read(name).decode(), re.S)
+                if m:
+                    print(m.group(1))
+    """
+
+    var body: some View {
+        Form {
+            Section {
+                Label {
+                    Text("Chat-Oberflächen wie ChatGPT, Claude oder Copilot lesen beim Hochladen in der Regel nur den sichtbaren Text eines Dokuments. Das eingebettete Markdown in Office-Dateien (customXml) und der PDF-Anhang werden dabei normalerweise nicht beachtet.")
+                } icon: {
+                    Image(systemName: "eye.slash")
+                }
+                Label {
+                    Text("Hat die KI Code-Ausführung (etwa Datenanalyse in ChatGPT oder Claude), kann sie das Markdown selbst auslesen, wenn du sagst, wo es liegt. Dafür sind die Prompts unten.")
+                } icon: {
+                    Image(systemName: "terminal")
+                }
+            } header: {
+                Text("Was eine KI von selbst findet")
+            }
+
+            Section {
+                Label {
+                    Text("Am zuverlässigsten: das Markdown direkt mitgeben. In der Detailansicht „Als .md sichern“ wählen oder in der Symbolleiste ein OKF-Bundle exportieren und diese Dateien hochladen.")
+                } icon: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            } header: {
+                Text("Einfachster Weg")
+            }
+
+            promptSection("Prompt für Word, Excel und PowerPoint", Self.officePrompt)
+            promptSection("Prompt für PDF", Self.pdfPrompt)
+            promptSection("Für Agenten mit Python", Self.codeSnippet, monospaced: true)
+
+            Section {
+                Text("Tipp: Die Frontmatter enthält unter carrymark: den Fingerprint. Zeigt Carrymark die Datei als „Aktuell“, entspricht das Markdown genau dem heutigen Inhalt; bei „Veraltet“ erst aktualisieren, dann weitergeben.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func promptSection(_ title: String, _ text: String, monospaced: Bool = false) -> some View {
+        Section {
+            Text(text)
+                .font(monospaced ? .callout.monospaced() : .callout)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                CopyButton(text: text)
+            }
+        } header: {
+            Text(title)
+        }
+    }
+}
+
+struct CopyButton: View {
+    let text: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            withAnimation(.snappy) { copied = true }
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                withAnimation(.snappy) { copied = false }
+            }
+        } label: {
+            Label(copied ? "Kopiert" : "Kopieren", systemImage: copied ? "checkmark" : "doc.on.doc")
+        }
     }
 }

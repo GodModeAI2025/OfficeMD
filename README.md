@@ -170,6 +170,9 @@ nicht das eingebettete Markdown. Zwei Wege:
   `carrymark.md`.“ Mit Code-Ausführung klappt das.
 - oder direkt die `.md` aus `carrymark export` bzw. das OKF-Bundle mitgeben.
 
+In der Mac-App stehen diese Hinweise unter Einstellungen > „Mit KI nutzen“, mit fertigen
+Prompts für Office und PDF sowie einem Python-Schnipsel für Agenten, jeweils zum Kopieren.
+
 ## Was getestet ist und was nicht
 
 Der Office-Roundtrip (`carrymark selftest --office`, Berichte in [`compat/`](compat/)) lief am
