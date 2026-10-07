@@ -109,15 +109,19 @@ struct DocIcon: View {
 struct StateBadge: View {
     let state: DocState
     var compact = false
+    var short = false
+    /// In einer ausgewählten Listenzeile (blauer Grund) wird die Plakette weiß, sonst ist Rot auf Blau kaum lesbar.
+    @Environment(\.backgroundProminence) private var prominence
 
     var body: some View {
-        Label(state.label, systemImage: state.symbol)
+        let onSelection = prominence == .increased
+        Label(short && state == .never ? "Neu" : state.label, systemImage: state.symbol)
             .labelStyle(.titleAndIcon)
             .font(compact ? .caption.weight(.medium) : .callout.weight(.semibold))
             .padding(.horizontal, compact ? 7 : 10)
             .padding(.vertical, compact ? 2 : 4)
-            .foregroundStyle(state.color)
-            .background(state.color.opacity(0.13), in: Capsule())
+            .foregroundStyle(onSelection ? Color.white : state.color)
+            .background((onSelection ? Color.white.opacity(0.22) : state.color.opacity(0.13)), in: Capsule())
     }
 }
 

@@ -195,9 +195,12 @@ Dateien, die sich nicht verarbeiten lassen (verschlüsselt, signiert, Makros, be
 erscheinen nicht in der Liste, sondern als Hinweis unten in der Seitenleiste. Die App merkt sich
 die aufgenommenen Ordner und Dateien.
 
-Je Datei: Zustand, Vorschau des Markdowns (Tabellen als Tabellen, Folien als Abschnitte),
-„Einbetten“, „Aktualisieren“ oder „Wiederherstellen“, „Als .md sichern“. In der Symbolleiste:
-alle prüfen, alle aktualisieren, als OKF-Bundle exportieren.
+Die Oberfläche ist auf große Tippflächen ausgelegt: Filter-Chips (Alle, Offen, Aktuell, Neu)
+mit Zählern, Karten-Zeilen mit Statusplakette, Wischgesten (nach rechts: aktualisieren, nach
+links: als .md sichern oder entfernen) und je Datei eine große Hauptaktion, also „Einbetten“,
+„Aktualisieren“ oder „Wiederherstellen“. Darunter die Vorschau des Markdowns (Tabellen als
+Tabellen, Folien als Abschnitte). „Alle aktualisieren“ steht prominent in der Symbolleiste,
+seltene Aktionen wie OKF-Export und Einstellungen unter „Mehr“.
 
 ```bash
 cd app && swift run                # Entwicklung, nutzt ./carrymark aus dem Repository

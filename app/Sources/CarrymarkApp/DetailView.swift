@@ -99,44 +99,53 @@ struct DetailView: View {
 
     @ViewBuilder
     private var actions: some View {
-        HStack(spacing: 10) {
-            switch report.status {
-            case .never:
-                Button { sync() } label: { Label("Einbetten", systemImage: "square.and.arrow.down.on.square") }
-                    .buttonStyle(.borderedProminent)
-            case .stale:
-                Button { sync() } label: { Label("Aktualisieren", systemImage: "arrow.triangle.2.circlepath") }
-                    .buttonStyle(.borderedProminent)
-            case .lost:
-                Button { sync() } label: {
-                    Label((report.sidecar?.restorable ?? false) ? "Wiederherstellen" : "Neu einbetten",
-                          systemImage: "arrow.uturn.backward")
+        VStack(spacing: 10) {
+            if let primary {
+                Button { primary.action() } label: {
+                    Label(primary.title, systemImage: primary.symbol)
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 30)
                 }
                 .buttonStyle(.borderedProminent)
-            case .current, .unreadable:
-                EmptyView()
+                .buttonBorderShape(.capsule)
+                .controlSize(.extraLarge)
             }
-            if report.status != .unreadable {
-                Button { Task { await store.exportMarkdown(for: report) } } label: {
-                    Label("Als .md sichern", systemImage: "square.and.arrow.up")
+            HStack(spacing: 10) {
+                if report.status != .unreadable {
+                    Button { Task { await store.exportMarkdown(for: report) } } label: {
+                        Label("Als .md sichern", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity, minHeight: 24)
+                    }
+                    .help("Markdown neben der Datei als .md ablegen")
                 }
-                .help("Markdown neben der Datei als .md ablegen")
+                Button { reveal(report.file) } label: {
+                    Label("Im Finder zeigen", systemImage: "folder")
+                        .frame(maxWidth: .infinity, minHeight: 24)
+                }
             }
-            Button {
-                reveal(report.file)
-            } label: {
-                Label("Im Finder zeigen", systemImage: "folder")
-            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
         }
-        .controlSize(.large)
         .disabled(store.busy || report.locked)
-        .padding(.leading, 50)
+        .padding(.top, 4)
         if report.locked {
             Label("Die Datei ist in Office geöffnet. Bitte dort schließen, dann kann Carrymark schreiben.",
                   systemImage: "lock.fill")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .padding(.leading, 50)
+        }
+    }
+
+    /// Die eine Hauptaktion je Zustand (HIG: eine hervorgehobene Aktion pro Ansicht).
+    private var primary: (title: String, symbol: String, action: () -> Void)? {
+        switch report.status {
+        case .never: return ("Einbetten", "square.and.arrow.down.on.square", sync)
+        case .stale: return ("Aktualisieren", "arrow.triangle.2.circlepath", sync)
+        case .lost:
+            return ((report.sidecar?.restorable ?? false) ? "Wiederherstellen" : "Neu einbetten",
+                    "arrow.uturn.backward", sync)
+        case .current, .unreadable: return nil
         }
     }
 

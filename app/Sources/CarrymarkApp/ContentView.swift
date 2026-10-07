@@ -8,22 +8,42 @@ struct ContentView: View {
     @State private var search = ""
     @Environment(\.openSettings) private var openSettings
 
-    private var filtered: [FileReport] {
-        let all = store.reports.sorted(by: Store.order)
-        guard !search.isEmpty else { return all }
-        return all.filter { $0.fileName.localizedCaseInsensitiveContains(search) }
+    @State private var filter: Filter = .all
+
+    /// Filter-Chips oben in der Seitenleiste; ersetzen Abschnittsüberschriften.
+    enum Filter: String, CaseIterable, Identifiable {
+        case all, attention, current, new
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .all: return "Alle"
+            case .attention: return "Offen"
+            case .current: return "Aktuell"
+            case .new: return "Neu"
+            }
+        }
+
+        func matches(_ report: FileReport) -> Bool {
+            switch self {
+            case .all: return true
+            case .attention: return report.status.group == 0
+            case .current: return report.status == .current
+            case .new: return report.status == .never
+            }
+        }
     }
 
-    private var sections: [(String, [FileReport])] {
-        let groups = Dictionary(grouping: filtered) { $0.status.group }
-        return [(0, "Braucht Aufmerksamkeit"), (1, "Aktuell"), (2, "Noch nicht eingebettet")]
-            .compactMap { key, title in groups[key].map { (title, $0) } }
+    private var filtered: [FileReport] {
+        store.reports.sorted(by: Store.order)
+            .filter(filter.matches)
+            .filter { search.isEmpty || $0.fileName.localizedCaseInsensitiveContains(search) }
     }
 
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 380)
+                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 420)
         } detail: {
             detail
         }
@@ -70,33 +90,100 @@ struct ContentView: View {
 
     private var sidebar: some View {
         List(selection: $store.selection) {
-            ForEach(sections, id: \.0) { title, reports in
-                Section(title) {
-                    ForEach(reports) { report in
-                        FileRow(report: report).tag(report.id)
-                            .contextMenu { rowMenu(report) }
+            Section {
+            ForEach(filtered) { report in
+                FileRow(report: report)
+                    .tag(report.id)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                    .contextMenu { rowMenu(report) }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        if report.status != .current && report.status != .unreadable {
+                            Button { sync(report) } label: {
+                                Label("Aktualisieren", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                            .tint(.accentColor)
+                        }
                     }
-                }
+                    .swipeActions(edge: .trailing) {
+                        if let root = store.roots.first(where: { $0.path == report.file }) {
+                            Button(role: .destructive) { store.remove(root) } label: {
+                                Label("Entfernen", systemImage: "trash")
+                            }
+                        }
+                        Button { Task { await store.exportMarkdown(for: report) } } label: {
+                            Label("Als .md", systemImage: "square.and.arrow.up")
+                        }
+                        .tint(.indigo)
+                    }
+            }
+            } header: {
+                if !store.reports.isEmpty { filterChips }
             }
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            if !store.skipped.isEmpty { SkippedFooter(files: store.skipped) }
+        .environment(\.defaultMinListRowHeight, 64)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 6) {
+                Button { importing = true } label: {
+                    Label("Hinzufügen", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                if !store.skipped.isEmpty { SkippedFooter(files: store.skipped) }
+            }
+            .padding(12)
         }
         .overlay {
             if store.reports.isEmpty {
                 ContentUnavailableView {
-                    Label("Noch keine Dateien", systemImage: "doc.on.doc")
+                    Label("Noch keine Dateien", systemImage: "tray")
                 } description: {
-                    Text("Ziehe einen Ordner, Office-Dateien oder PDFs hierher.")
-                } actions: {
-                    Button("Ordner hinzufügen …") { importing = true }
-                        .buttonStyle(.borderedProminent)
+                    Text("Ziehe Dateien oder Ordner ins Fenster.")
                 }
             } else if filtered.isEmpty {
-                ContentUnavailableView.search(text: search)
+                if search.isEmpty {
+                    ContentUnavailableView("Nichts in „\(filter.title)“", systemImage: "line.3.horizontal.decrease.circle")
+                } else {
+                    ContentUnavailableView.search(text: search)
+                }
             }
         }
+    }
+
+    private var filterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Filter.allCases) { item in
+                    let count = store.reports.filter(item.matches).count
+                    Button { withAnimation(.snappy) { filter = item } } label: {
+                        HStack(spacing: 6) {
+                            Text(item.title)
+                            Text("\(count)")
+                                .monospacedDigit()
+                                .foregroundStyle(filter == item ? .white.opacity(0.85) : .secondary)
+                        }
+                        .font(.callout.weight(.medium))
+                        .padding(.horizontal, 11)
+                        .frame(minHeight: 34)
+                        .foregroundStyle(filter == item ? .white : .primary)
+                        .background(filter == item ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary),
+                                    in: Capsule())
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(filter == item ? .isSelected : [])
+                }
+            }
+            .padding(.vertical, 6)
+        }
+        .textCase(nil)
+    }
+
+    private func sync(_ report: FileReport) {
+        Task { await store.sync([report.file], label: report.fileName) }
     }
 
     @ViewBuilder
@@ -137,29 +224,32 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            Button { importing = true } label: { Label("Hinzufügen", systemImage: "folder.badge.plus") }
-                .help("Ordner oder Dateien hinzufügen (⌘O)")
-            Button { Task { await store.refresh() } } label: { Label("Neu prüfen", systemImage: "arrow.clockwise") }
-                .help("Alle Dateien neu prüfen")
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button { importing = true } label: { Label("Hinzufügen …", systemImage: "plus") }
+                Button { Task { await store.refresh() } } label: { Label("Neu prüfen", systemImage: "arrow.clockwise") }
+                    .disabled(store.roots.isEmpty || store.busy)
+                Button { Task { await store.exportBundle() } } label: {
+                    Label("Als OKF-Bundle exportieren …", systemImage: "square.and.arrow.up.on.square")
+                }
                 .disabled(store.roots.isEmpty || store.busy)
-            Button { Task { await store.exportBundle() } } label: {
-                Label("OKF-Bundle exportieren", systemImage: "square.and.arrow.up.on.square")
+                Divider()
+                Button { openSettings() } label: { Label("Einstellungen …", systemImage: "gearshape") }
+            } label: {
+                Label("Mehr", systemImage: "ellipsis.circle")
             }
-            .help("Alle Dateien als Markdown-Bundle im Open Knowledge Format exportieren")
-            .disabled(store.roots.isEmpty || store.busy)
-        }
-        ToolbarItem {
-            Button { openSettings() } label: { Label("Einstellungen", systemImage: "gearshape") }
-                .help("Einstellungen (⌘,)")
+            .help("Weitere Aktionen")
         }
         ToolbarItem(placement: .primaryAction) {
             Button {
                 Task { await store.sync(store.roots.map(\.path), label: "Alle Dateien") }
             } label: {
-                Label("Alle aktualisieren", systemImage: "wand.and.stars")
+                Label("Alle aktualisieren", systemImage: "arrow.triangle.2.circlepath")
+                    .labelStyle(.titleAndIcon)
             }
-            .help("Alle Dateien prüfen und bei Bedarf Markdown neu einbetten")
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .help("Alle Dateien prüfen und bei Bedarf Markdown einbetten oder wiederherstellen")
             .disabled(store.roots.isEmpty || store.busy)
         }
     }
@@ -241,37 +331,34 @@ struct FileRow: View {
     let report: FileReport
 
     var body: some View {
-        HStack(spacing: 10) {
-            DocIcon(kind: report.kind, size: 28)
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 12) {
+            DocIcon(kind: report.kind, size: 40)
+            VStack(alignment: .leading, spacing: 5) {
                 Text(report.fileName)
+                    .font(.body.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    StateBadge(state: report.status, compact: true, short: true)
+                    if let chars = report.characters, report.status != .unreadable {
+                        Text("\(chars.formatted()) Zeichen")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if report.locked {
+                        Image(systemName: "lock.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("In Office geöffnet")
+                    }
+                }
             }
-            Spacer(minLength: 4)
-            if report.locked {
-                Image(systemName: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .help("In Office geöffnet")
-            }
-            Image(systemName: report.status.symbol)
-                .foregroundStyle(report.status.color)
-                .help(report.status.label)
-                .accessibilityLabel(report.status.label)
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 3)
-    }
-
-    private var subtitle: String {
-        if let chars = report.characters, report.status != .unreadable {
-            return "\(report.status.label) · \(chars.formatted()) Zeichen"
-        }
-        return report.status.label
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -279,20 +366,33 @@ struct WelcomeView: View {
     let add: () -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "doc.richtext")
-                .font(.system(size: 52, weight: .light))
-                .foregroundStyle(.tint)
-            VStack(spacing: 6) {
-                Text("Markdown, das in der Datei bleibt").font(.title2.weight(.semibold))
+        VStack(spacing: 24) {
+            VStack(spacing: 8) {
+                Text("Markdown, das in der Datei bleibt").font(.largeTitle.weight(.bold))
                 Text("Carrymark wandelt Word, Excel, PowerPoint und PDF mit microsoft/markitdown in Markdown um, legt es direkt in die Datei und sagt dir, wann es nicht mehr zum Inhalt passt.")
+                    .font(.title3)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: 440)
+                    .frame(maxWidth: 520)
             }
-            Button("Ordner hinzufügen …", action: add)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            Button(action: add) {
+                VStack(spacing: 14) {
+                    Image(systemName: "square.and.arrow.down.on.square")
+                        .font(.system(size: 44, weight: .light))
+                        .foregroundStyle(.tint)
+                    Text("Dateien oder Ordner hier ablegen").font(.title3.weight(.semibold))
+                    Text("oder tippen, um auszuwählen").foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 520, minHeight: 220)
+                .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            Text("Word · Excel · PowerPoint · PDF").font(.callout).foregroundStyle(.tertiary)
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
