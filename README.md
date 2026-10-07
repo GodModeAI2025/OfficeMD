@@ -188,11 +188,19 @@ die anderen Befehle auf und enthält selbst keine Paketlogik.
 cd app && swift run
 ```
 
-Ordner oder Dateien ins Fenster ziehen, dann zeigt die Liste den Zustand jeder Datei. Je nach
+![OfficeMD-App mit einer verlorenen Excel-Datei](docs/app.png)
+
+Ordner oder Dateien ins Fenster ziehen oder beim Start übergeben
+(`swift run OfficeMDApp ~/Dokumente`), dann zeigt die Liste den Zustand jeder Datei. Je nach
 Zustand gibt es Roh-Markdown einbetten, Wiederherstellen und Markdown anzeigen. Den Pfad zu
 `officemd` findet die App selbst, solange sie aus dem Repository gestartet wird, sonst in den
-Einstellungen setzen. Stand: Die App baut, und das Dekodieren der CLI-Ausgabe ist gegen echte
-Ausgaben aller Zustände getestet; die Oberfläche selbst ist noch nicht durchgeklickt.
+Einstellungen setzen.
+
+Für Tests fotografiert die App ihr eigenes Fenster, ohne Berechtigung zur Bildschirmaufnahme:
+`swift run OfficeMDApp ORDNER --select datei.docx --snapshot bild.png`. So ist das Bild oben
+entstanden. Die Darstellung aller Zustände ist damit geprüft; die Aktionen rufen nur die
+getesteten CLI-Befehle auf. Ein signiertes App-Bundle mit eingebettetem Python gibt es noch
+nicht.
 
 ## Lizenz
 

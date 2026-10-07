@@ -36,6 +36,24 @@ final class Store: ObservableObject {
 
     var selected: FileReport? { reports.first { $0.id == selection } }
 
+    init() {
+        // Pfade aus der Kommandozeile übernehmen: swift run OfficeMDApp ~/Dokumente
+        let options = LaunchOptions.parse(CommandLine.arguments)
+        roots = options.paths.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+        guard !roots.isEmpty else { return }
+        Task {
+            await refresh()
+            if let name = options.select {
+                selection = reports.first { $0.fileName == name }?.id ?? selection
+            }
+            if let path = options.snapshot {
+                try? await Task.sleep(for: .seconds(1.5))
+                Snapshot.write(to: path)
+                NSApplication.shared.terminate(nil)
+            }
+        }
+    }
+
     func add(_ urls: [URL]) {
         for url in urls where !roots.contains(url) { roots.append(url) }
         Task { await refresh() }
@@ -47,6 +65,9 @@ final class Store: ObservableObject {
         defer { busy = false }
         do {
             reports = try await cli.check(roots.map(\.path))
+            if selection == nil || !reports.contains(where: { $0.id == selection }) {
+                selection = reports.first?.id
+            }
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -259,5 +280,38 @@ struct SettingsView: View {
         }
         .padding()
         .frame(width: 520)
+    }
+}
+
+/// Startargumente: Pfade, dazu für Tests `--select Dateiname` und `--snapshot bild.png`.
+struct LaunchOptions {
+    var paths: [String] = []
+    var select: String?
+    var snapshot: String?
+
+    static func parse(_ arguments: [String]) -> LaunchOptions {
+        var options = LaunchOptions()
+        var iterator = arguments.dropFirst().makeIterator()
+        while let arg = iterator.next() {
+            switch arg {
+            case "--select": options.select = iterator.next()
+            case "--snapshot": options.snapshot = iterator.next()
+            default:
+                // Xcode und LaunchServices hängen eigene Schalter an (-NSDocumentRevisionsDebugMode …).
+                if !arg.hasPrefix("-") { options.paths.append(arg) }
+            }
+        }
+        return options
+    }
+}
+
+/// Fotografiert das eigene Fenster. Braucht keine Berechtigung zur Bildschirmaufnahme.
+@MainActor
+enum Snapshot {
+    static func write(to path: String) {
+        guard let view = NSApplication.shared.windows.first(where: { $0.isVisible })?.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
     }
 }

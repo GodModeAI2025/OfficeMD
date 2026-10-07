@@ -44,7 +44,7 @@ Extraktion nicht. Durch Tests belegt: Der Fingerprint bleibt beim Einbetten glei
 | 2 | Wissensgraph: `build_graph`, `validate`, `verify`, `update` (Merge), `render` | erledigt |
 | 3 | XLSX- und PPTX-Adapter | erledigt |
 | 4 | Office-Roundtrip per AppleScript, Kompatibilitätsbericht | erledigt für macOS |
-| 5 | SwiftUI-Oberfläche über dem CLI | gebaut, Oberfläche noch nicht durchgeklickt |
+| 5 | SwiftUI-Oberfläche über dem CLI | erledigt, Darstellung aller Zustände per `--snapshot` geprüft |
 
 ## 4. Ergebnis des Office-Roundtrips
 
@@ -65,6 +65,5 @@ ersten Start länger als das Standard-Timeout von AppleScript.
 - Office für Windows, Office im Browser, Dokumentinspektor, Pages, Google Docs, LibreOffice
   testen. Die Liste der möglichen Ursachen bei „Verloren“ ist bis dahin eine Annahme.
 - Textbasierter Hash direkt im Distiller (Weg a), dann entfällt die Umbindung in OfficeMD.
-- SwiftUI-App: Oberfläche testen, Bundle mit eingebettetem Python und Distiller bauen,
-  Signierung.
+- SwiftUI-App: Bundle mit eingebettetem Python und Distiller bauen, Signierung.
 - Agent-Schritt für den Modus Wissensgraph in die App holen (heute extern).
