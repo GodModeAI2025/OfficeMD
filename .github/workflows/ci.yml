@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    name: Tests (Python ${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Installieren
+        run: python -m pip install -e ".[test]"
+      - name: Tests
+        run: python -m pytest -q
+      - name: Selbsttest
+        run: python -m carrymark.cli selftest
+
+  app:
+    name: Mac-App bauen
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift-Build
+        working-directory: app
+        run: swift build -c release

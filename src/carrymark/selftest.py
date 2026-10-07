@@ -2,7 +2,7 @@
 
 Ohne ``--office`` läuft ein reiner Pakettest mit selbst erzeugten Dateien (einbetten, prüfen,
 Part entfernen, Verlust erkennen, wiederherstellen). Mit ``--office`` erzeugen Word, Excel und
-PowerPoint per AppleScript je eine echte Datei, OfficeMD bettet ein, die App öffnet die Datei,
+PowerPoint per AppleScript je eine echte Datei, Carrymark bettet ein, die App öffnet die Datei,
 ändert sie, speichert und schließt. Danach wird geprüft, ob Part und Fingerprint-Eintrag noch
 da sind. Das Ergebnis landet als Kompatibilitätsbericht in ``compat/``.
 
@@ -36,7 +36,7 @@ CREATE = {
 with timeout of 600 seconds
 tell application "Microsoft Word"
     set d to make new document
-    insert text "OfficeMD Selbsttest. Erster Absatz." at end of text object of d
+    insert text "Carrymark Selbsttest. Erster Absatz." at end of text object of d
     save as d file name "{hfs}" file format format document
     close document "{name}" saving no
 end tell
@@ -45,7 +45,7 @@ end timeout''',
 with timeout of 600 seconds
 tell application "Microsoft Excel"
     set wb to make new workbook
-    set value of range "A1" of active sheet of wb to "OfficeMD Selbsttest"
+    set value of range "A1" of active sheet of wb to "Carrymark Selbsttest"
     set value of range "B1" of active sheet of wb to 42
     save workbook as wb filename "{hfs}" file format Excel XML file format
     close workbook "{name}" saving no
@@ -56,7 +56,7 @@ with timeout of 600 seconds
 tell application "Microsoft PowerPoint"
     set p to make new presentation
     set s to make new slide at end of p with properties {{layout:slide layout title only}}
-    set content of text range of text frame of shape 1 of s to "OfficeMD Selbsttest"
+    set content of text range of text frame of shape 1 of s to "Carrymark Selbsttest"
     save p in "{hfs}" as save as Open XML presentation
     close presentation "{name}" saving no
 end tell
@@ -124,7 +124,7 @@ def _app_version(app_name: str) -> str:
 
 def offline() -> List[Dict[str, Any]]:
     results = []
-    with tempfile.TemporaryDirectory(prefix="omd-selftest-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="cm-selftest-") as tmp:
         tmp_path = Path(tmp).resolve()
         files = {
             "docx": fixtures.make_docx(tmp_path / "test.docx", ["Erster Absatz.", "Zweiter Absatz."]),
@@ -156,7 +156,7 @@ def office_roundtrip(app: str, workdir: Path, keep: bool = False) -> Dict[str, A
         result.update(ok=False, error="App nicht installiert")
         return result
     workdir.mkdir(parents=True, exist_ok=True)
-    path = workdir / f"officemd-roundtrip{spec['suffix']}"
+    path = workdir / f"carrymark-roundtrip{spec['suffix']}"
     for leftover in (path, ops.sidecar_dir(path)):
         if leftover.is_dir():
             shutil.rmtree(leftover)
@@ -166,43 +166,32 @@ def office_roundtrip(app: str, workdir: Path, keep: bool = False) -> Dict[str, A
         hfs = _hfs(path)
         _osascript(CREATE[app].format(hfs=hfs, name=path.name))
         result["created"] = path.exists()
-        # Wissensgraph mit einem Beleg auf den von der App geschriebenen Text einbetten.
-        from . import distiller
-        normalized = distiller.extract(path)
-        first = normalized["segments"][0]["text"].split("\t")[0]
-        graph = fixtures.make_graph(workdir / f"{path.stem}.knowledge.json", file_name=path.name,
-                                    file_type=path.suffix.lstrip("."),
-                                    content_sha256=normalized["source"]["content_sha256"],
-                                    quotes={"selbsttest": first})
-        embedded = ops.embed(path, graph, replace=True)
+        embedded = ops.embed(path)
         result["fingerprint_before"] = embedded["fingerprint"]
         _osascript(MODIFY[app].format(hfs=hfs, name=path.name))
         pkg = ooxml.Package(path)
         part = pkg.find_knowledge()
         props = pkg.read_props()
-        report = ops.check(path, with_evidence=False)
+        report = ops.check(path)
         result.update(
             state_after_save=report["state"],
             part_survived=part is not None,
             part_registered=bool(part and part.registered),
-            payload_intact=bool(part and part.payload.graph_json),
+            payload_intact=bool(part and part.payload.markdown),
             props_survived=bool(props.get("Fingerprint")),
             guid_kept=bool(part and part.guid == embedded["guid"]),
             saved_by=report.get("saved_by"),
             warnings=report.get("warnings", []),
         )
-        ev = ops.check(path).get("evidence")
-        if ev:
-            result["evidence_after_save"] = f"{ev['counts']['verified']} von {ev['total']} Belegen gefunden"
+        result["markdown_after_save"] = "vollständig" if result["payload_intact"] else "fehlt"
         result["ok"] = result["part_survived"] and result["props_survived"]
     except Exception as exc:
         result.update(ok=False, error=str(exc))
     finally:
         if not keep:
             shutil.rmtree(ops.sidecar_dir(path), ignore_errors=True)
-            for leftover in (path, workdir / f"{path.stem}.knowledge.json"):
-                if leftover.exists():
-                    leftover.unlink()
+            if path.exists():
+                path.unlink()
     return result
 
 
@@ -212,11 +201,11 @@ def _write_report(outdir: Path, report: Dict[str, Any]) -> Path:
     json_path = outdir / f"office-roundtrip-{stamp}.json"
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     lines = [f"# Office-Roundtrip {stamp}", "",
-             f"officemd {__version__}, macOS {report['macos']}", "",
-             "Ablauf je App: Datei in der App anlegen, Wissensgraph mit OfficeMD einbetten, Datei in "
+             f"carrymark {__version__}, macOS {report['macos']}", "",
+             "Ablauf je App: Datei in der App anlegen, Markdown mit Carrymark einbetten, Datei in "
              "der App öffnen, Text ergänzen, speichern, schließen. Weil der Test Text hinzufügt, ist "
              "„Veraltet“ das erwartete Ergebnis. Entscheidend sind die Spalten zu Part, Eintrag und GUID.", "",
-             "| App | Version | Part überlebt | Registrierung | Fingerprint-Eintrag | GUID gleich | Zustand danach | Belege |",
+             "| App | Version | Part überlebt | Registrierung | Fingerprint-Eintrag | GUID gleich | Zustand danach | Markdown |",
              "|---|---|---|---|---|---|---|---|"]
     yes = {True: "ja", False: "nein", None: "-"}
     for r in report["office"]:
@@ -225,7 +214,7 @@ def _write_report(outdir: Path, report: Dict[str, Any]) -> Path:
             continue
         lines.append(f"| {r['app']} | {r['version']} | {yes[r['part_survived']]} | {yes[r['part_registered']]} | "
                      f"{yes[r['props_survived']]} | {yes[r['guid_kept']]} | {ops.STATE_LABELS[r['state_after_save']]} | "
-                     f"{r.get('evidence_after_save', '-')} |")
+                     f"{r.get('markdown_after_save', '-')} |")
     (outdir / f"office-roundtrip-{stamp}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return json_path
 
@@ -251,7 +240,7 @@ def main(office: bool, apps: List[str], outdir: Path, keep: bool = False) -> int
         else:
             print(f"  {r['app']} {r['version']}: Part {'überlebt' if r['part_survived'] else 'VERLOREN'}, "
                   f"Fingerprint-Eintrag {'da' if r['props_survived'] else 'weg'}, "
-                  f"Zustand {ops.STATE_LABELS[r['state_after_save']]}, {r.get('evidence_after_save', 'keine Belege')}")
+                  f"Zustand {ops.STATE_LABELS[r['state_after_save']]}, Markdown {r.get('markdown_after_save', '-')}")
         ok &= bool(r.get("ok"))
     path = _write_report(outdir, {"tool_version": __version__, "macos": platform.mac_ver()[0],
                                   "date": datetime.now(timezone.utc).isoformat(timespec="seconds"),

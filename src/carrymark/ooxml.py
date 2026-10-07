@@ -1,8 +1,8 @@
-"""Lesen und Schreiben des OfficeMD-Parts in OOXML-Paketen (DOCX, XLSX, PPTX).
+"""Lesen und Schreiben des Carrymark-Parts in OOXML-Paketen (DOCX, XLSX, PPTX).
 
 Der Part wird so registriert, wie Office selbst Custom-XML-Datastores anlegt:
 
-* ``customXml/itemN.xml`` mit unserem Wurzelelement ``omd:knowledge``,
+* ``customXml/itemN.xml`` mit unserem Wurzelelement ``cm:knowledge``,
 * ``customXml/itemPropsN.xml`` mit ``ds:datastoreItem`` und eigener GUID,
 * ``customXml/_rels/itemN.xml.rels`` als Verweis vom Item auf die ItemProps,
 * eine ``customXml``-Relationship vom Hauptpart (Dokument, Arbeitsmappe, Präsentation),
@@ -31,7 +31,11 @@ from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Tuple
 from xml.sax.saxutils import quoteattr
 
-NS_OMD = "urn:officemd:knowledge:1"
+NS_CM = "urn:carrymark:knowledge:1"
+# Ältere Fassungen hießen OfficeMD. Ihre Parts und Einträge werden weiter erkannt;
+# sync ersetzt sie beim nächsten Einbetten durch das aktuelle Format.
+LEGACY_NAMESPACES = ("urn:officemd:knowledge:1",)
+LEGACY_PROP_PREFIXES = ("OfficeMD",)
 NS_PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 NS_CT = "http://schemas.openxmlformats.org/package/2006/content-types"
 NS_DS = "http://schemas.openxmlformats.org/officeDocument/2006/customXml"
@@ -49,7 +53,7 @@ CT_CUSTOM_PROPERTIES = "application/vnd.openxmlformats-officedocument.custom-pro
 CT_XML = "application/xml"
 
 FMTID_USER_DEFINED = "{D5CDD505-2E9C-101B-9397-08002B2CF9AE}"
-PROP_PREFIX = "OfficeMD"
+PROP_PREFIX = "Carrymark"
 PROP_NAMES = ("Fingerprint", "Version", "PartGuid", "Mode", "EmbeddedAt")
 PAYLOAD_VERSION = "1"
 
@@ -83,7 +87,7 @@ class ConcurrentModificationError(OoxmlError):
 
 @dataclass
 class Payload:
-    """Inhalt des OfficeMD-Parts."""
+    """Inhalt des Carrymark-Parts."""
 
     mode: str  # "raw" oder "graph"
     fingerprint: str
@@ -400,9 +404,12 @@ class Package:
         result: Dict[str, str] = {}
         for prop in self.xml(part).iter(f"{{{NS_CUSTOM_PROPS}}}property"):
             name = prop.get("name", "")
-            if name.startswith(PROP_PREFIX):
-                value = "".join(child.text or "" for child in prop)
-                result[name[len(PROP_PREFIX):]] = value
+            for prefix in (PROP_PREFIX,) + LEGACY_PROP_PREFIXES:
+                if name.startswith(prefix):
+                    key = name[len(prefix):]
+                    if prefix == PROP_PREFIX or key not in result:
+                        result[key] = "".join(child.text or "" for child in prop)
+                    break
         return result
 
     def write_props(self, values: Dict[str, str]) -> None:
@@ -433,6 +440,17 @@ class Package:
             ET.SubElement(prop, f"{{{NS_VT}}}lpwstr").text = value
         self.write(part, _serialize(root, NS_CUSTOM_PROPS))
 
+    def remove_legacy_props(self) -> None:
+        part = self.custom_props_part()
+        if part is None:
+            return
+        root = self.xml(part)
+        legacy = [p for p in list(root) if p.get("name", "").startswith(LEGACY_PROP_PREFIXES)]
+        for prop in legacy:
+            root.remove(prop)
+        if legacy:
+            self.write(part, _serialize(root, NS_CUSTOM_PROPS))
+
     def remove_props(self) -> None:
         part = self.custom_props_part()
         if part is None:
@@ -440,7 +458,7 @@ class Package:
         root = self.xml(part)
         changed = False
         for prop in list(root):
-            if prop.get("name", "").startswith(PROP_PREFIX):
+            if prop.get("name", "").startswith((PROP_PREFIX,) + LEGACY_PROP_PREFIXES):
                 root.remove(prop)
                 changed = True
         if changed:
@@ -461,13 +479,14 @@ class Package:
             if not ITEM_NAME.match(name):
                 continue
             data = self.read(name)
-            if NS_OMD.encode() not in data:
+            namespace = next((ns for ns in (NS_CM,) + LEGACY_NAMESPACES if ns.encode() in data), None)
+            if namespace is None:
                 continue
             root = _parse_xml(name, data)
-            if root.tag != f"{{{NS_OMD}}}knowledge":
+            if root.tag != f"{{{namespace}}}knowledge":
                 continue
-            graph = root.find(f"{{{NS_OMD}}}graph")
-            markdown = root.find(f"{{{NS_OMD}}}markdown")
+            graph = root.find(f"{{{namespace}}}graph")
+            markdown = root.find(f"{{{namespace}}}markdown")
             payload = Payload(
                 mode=root.get("mode", "raw"),
                 fingerprint=root.get("fingerprint", ""),
@@ -516,6 +535,7 @@ class Package:
         if not self.has_xml_default():
             self.ensure_override(item_name, CT_XML)
         self.add_relationship(self.main_part(), REL_CUSTOM_XML, item_name)
+        self.remove_legacy_props()
         self.write_props({
             "Fingerprint": payload.fingerprint,
             "Version": PAYLOAD_VERSION,
@@ -549,7 +569,7 @@ class Package:
             st = self.path.stat()
             if (st.st_mtime_ns, st.st_size) != self._stat_key:
                 raise ConcurrentModificationError("Datei wurde seit dem Lesen verändert")
-        fd, tmp_name = tempfile.mkstemp(prefix=".omd-", suffix=target.suffix, dir=str(target.parent))
+        fd, tmp_name = tempfile.mkstemp(prefix=".cm-", suffix=target.suffix, dir=str(target.parent))
         tmp = Path(tmp_name)
         try:
             with os.fdopen(fd, "wb") as handle:
@@ -596,18 +616,18 @@ def _item_xml(payload: Payload) -> bytes:
     if payload.source_id:
         attrs["source-id"] = payload.source_id
     attr_text = "".join(f" {k}={quoteattr(v)}" for k, v in attrs.items())
-    parts = [f'<omd:knowledge xmlns:omd="{NS_OMD}"{attr_text}>']
+    parts = [f'<cm:knowledge xmlns:cm="{NS_CM}"{attr_text}>']
     if payload.graph_json is not None:
-        parts.append(f'<omd:graph format="knowledge.json">{_cdata(payload.graph_json)}</omd:graph>')
+        parts.append(f'<cm:graph format="knowledge.json">{_cdata(payload.graph_json)}</cm:graph>')
     if payload.markdown is not None:
-        parts.append(f"<omd:markdown>{_cdata(payload.markdown)}</omd:markdown>")
-    parts.append("</omd:knowledge>")
+        parts.append(f"<cm:markdown>{_cdata(payload.markdown)}</cm:markdown>")
+    parts.append("</cm:knowledge>")
     return XML_DECLARATION + "".join(parts).encode("utf-8")
 
 
 def _item_props_xml(guid: str) -> bytes:
     return XML_DECLARATION + (
         f'<ds:datastoreItem ds:itemID="{guid}" xmlns:ds="{NS_DS}">'
-        f'<ds:schemaRefs><ds:schemaRef ds:uri="{NS_OMD}"/></ds:schemaRefs>'
+        f'<ds:schemaRefs><ds:schemaRef ds:uri="{NS_CM}"/></ds:schemaRefs>'
         "</ds:datastoreItem>"
     ).encode("utf-8")

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Ruft das Python-CLI `officemd` auf. Die App enthält keine eigene Logik für Office-Pakete,
+/// Ruft das Python-CLI `carrymark` auf. Die App enthält keine eigene Logik für Office-Pakete,
 /// damit Verhalten und Tests an einer Stelle bleiben.
 struct CLI {
     let executable: String
@@ -11,27 +11,27 @@ struct CLI {
         return CLI(executable: stored.isEmpty ? guessExecutable() : stored)
     }
 
-    /// Sucht `officemd`: zuerst im App-Bundle (eingebettetes Python), dann neben dem
+    /// Sucht `carrymark`: zuerst im App-Bundle (eingebettetes Python), dann neben dem
     /// Repository vom App-Binary aufwärts, dann im PATH.
     static func guessExecutable() -> String {
-        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/officemd"),
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/carrymark"),
            FileManager.default.isExecutableFile(atPath: bundled.path) {
             return bundled.path
         }
         var url = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         for _ in 0..<8 {
             url.deleteLastPathComponent()
-            let candidate = url.appendingPathComponent("officemd")
+            let candidate = url.appendingPathComponent("carrymark")
             var isDir: ObjCBool = false
             if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDir), !isDir.boolValue {
                 return candidate.path
             }
         }
         for dir in ["/opt/homebrew/bin", "/usr/local/bin", NSHomeDirectory() + "/.local/bin"] {
-            let candidate = dir + "/officemd"
+            let candidate = dir + "/carrymark"
             if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
         }
-        return "officemd"
+        return "carrymark"
     }
 
     func run(_ arguments: [String], stdin: String? = nil) async throws -> (status: Int32, stdout: String, stderr: String) {
@@ -74,26 +74,18 @@ struct CLI {
     func check(_ paths: [String]) async throws -> [FileReport] {
         let result = try await run(["check", "--json"] + paths)
         guard let data = result.stdout.data(using: .utf8), !result.stdout.isEmpty else {
-            throw CLIError.failed(result.stderr.isEmpty ? "Keine Ausgabe von officemd" : result.stderr)
+            throw CLIError.failed(result.stderr.isEmpty ? "Keine Ausgabe von carrymark" : result.stderr)
         }
         let decoder = JSONDecoder()
         if let list = try? decoder.decode([FileReport].self, from: data) { return list }
         return [try decoder.decode(FileReport.self, from: data)]
     }
 
-    func config() async throws -> AIConfig {
-        let result = try await run(["config", "show", "--json"])
-        guard result.status == 0, let data = result.stdout.data(using: .utf8) else {
-            throw CLIError.failed(result.stderr.isEmpty ? "Konfiguration nicht lesbar" : result.stderr)
-        }
-        return try JSONDecoder().decode(AIConfig.self, from: data)
-    }
-
-    /// Prüft und aktualisiert bei Bedarf; kann mit KI mehrere Minuten dauern.
-    func sync(_ paths: [String], raw: Bool = false) async throws -> [SyncResult] {
-        let result = try await run(["sync", "--json"] + (raw ? ["--raw"] : []) + paths)
+    /// Prüft und bettet bei Bedarf neu ein oder stellt wieder her. Läuft lokal.
+    func sync(_ paths: [String]) async throws -> [SyncResult] {
+        let result = try await run(["sync", "--json"] + paths)
         guard let data = result.stdout.data(using: .utf8), !result.stdout.isEmpty else {
-            throw CLIError.failed(result.stderr.isEmpty ? "Keine Ausgabe von officemd sync" : result.stderr)
+            throw CLIError.failed(result.stderr.isEmpty ? "Keine Ausgabe von carrymark sync" : result.stderr)
         }
         return try JSONDecoder().decode([SyncResult].self, from: data)
     }

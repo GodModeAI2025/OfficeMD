@@ -1,6 +1,6 @@
 import Foundation
 
-/// Ein Eintrag aus `officemd check --json`.
+/// Ein Eintrag aus `carrymark check --json`.
 struct FileReport: Decodable, Identifiable, Hashable {
     var id: String { file }
     let file: String
@@ -10,13 +10,22 @@ struct FileReport: Decodable, Identifiable, Hashable {
     let mode: String?
     let locked: Bool
     let warnings: [String]
-    let evidence: Evidence?
     let possibleCauses: [String]?
     let sidecar: Sidecar?
+    let part: Part?
+    let characters: Int?
+    let converter: String?
+    let savedBy: String?
 
-    struct Evidence: Decodable, Hashable {
-        let total: Int
-        let counts: Counts
+    struct Part: Decodable, Hashable {
+        let embeddedAt: String?
+        let guid: String?
+        let registered: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case guid, registered
+            case embeddedAt = "embedded_at"
+        }
     }
 
     struct Counts: Decodable, Hashable {
@@ -34,14 +43,25 @@ struct FileReport: Decodable, Identifiable, Hashable {
     struct Sidecar: Decodable, Hashable {
         let exists: Bool
         let restorable: Bool
+        let path: String?
     }
 
     enum CodingKeys: String, CodingKey {
-        case file, state, label, message, mode, locked, warnings, evidence, sidecar
+        case file, state, label, message, mode, locked, warnings, sidecar, part, characters, converter
         case possibleCauses = "possible_causes"
+        case savedBy = "saved_by"
     }
 
     var fileName: String { (file as NSString).lastPathComponent }
+    var folder: String { ((file as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath }
+    var kind: DocKind { DocKind(path: file) }
+    var status: DocState { DocState(rawValue: state) ?? .unreadable }
+
+    /// Datum der Einbettung, lokal formatiert.
+    var embeddedDate: String? {
+        guard let raw = part?.embeddedAt, let date = ISO8601DateFormatter().date(from: raw) else { return nil }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
 }
 
 enum CLIError: LocalizedError {
@@ -51,43 +71,14 @@ enum CLIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notFound(let path):
-            return "officemd nicht gefunden (\(path)). Pfad in den Einstellungen setzen."
+            return "carrymark nicht gefunden (\(path)). Pfad in den Einstellungen setzen."
         case .failed(let message):
             return message
         }
     }
 }
 
-/// `officemd config show --json`, ohne Geheimnisse.
-struct AIConfig: Decodable {
-    let provider: String?
-    let mode: String
-    let depth: String
-    let keyStore: String
-    let python: String
-    let providers: [String: ProviderInfo]
-
-    struct ProviderInfo: Decodable {
-        let model: String
-        let effort: String
-        let fallbacks: Bool?
-        let keySource: String
-        let sdkAvailable: Bool
-
-        enum CodingKeys: String, CodingKey {
-            case model, effort, fallbacks
-            case keySource = "key_source"
-            case sdkAvailable = "sdk_available"
-        }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case provider, mode, depth, python, providers
-        case keyStore = "key_store"
-    }
-}
-
-/// Ein Eintrag aus `officemd sync --json`.
+/// Ein Eintrag aus `carrymark sync --json`.
 struct SyncResult: Decodable, Identifiable {
     var id: String { file }
     let file: String

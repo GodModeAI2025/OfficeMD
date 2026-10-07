@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OfficeMD</title>
-<meta name="description" content="OfficeMD bettet einen belegten Wissensgraphen direkt in Word-, Excel- und PowerPoint-Dateien ein und erkennt, wann er nicht mehr zum Dokument passt.">
+<title>Carrymark</title>
+<meta name="description" content="Carrymark wandelt Word, Excel und PowerPoint mit microsoft/markitdown in Markdown um, legt es direkt in die Datei und erkennt, wann es nicht mehr zum Inhalt passt.">
 <style>
 :root {
   --bg: #fbfaf7;
@@ -125,14 +125,14 @@ a { color: var(--accent); }
 
 <header class="hero">
   <div class="wrap">
-    <div class="eyebrow">OfficeMD</div>
-    <h1>Das Wissen reist mit der Datei.</h1>
-    <p class="lead">OfficeMD legt einen belegten Wissensgraphen direkt in Word-, Excel- und
-    PowerPoint-Dateien. Ändert sich das Dokument, sagt es dir genau, welche Aussagen ihren Beleg
-    verloren haben.</p>
+    <div class="eyebrow">Carrymark</div>
+    <h1>Markdown, das in der Datei bleibt.</h1>
+    <p class="lead">Carrymark wandelt Word, Excel und PowerPoint mit
+    <a href="https://github.com/microsoft/markitdown">microsoft/markitdown</a> in Markdown um, legt es
+    direkt in die Office-Datei und sagt dir, wann es nicht mehr zum Inhalt passt. Lokal, ohne KI.</p>
     <div class="actions">
       <a class="btn primary" href="https://github.com/GodModeAI2025/OfficeMD">Zum Repository</a>
-      <a class="btn" href="https://github.com/GodModeAI2025/knowledge-distiller">Knowledge Distiller</a>
+      <a class="btn" href="https://github.com/microsoft/markitdown">microsoft/markitdown</a>
     </div>
   </div>
 </header>
@@ -140,36 +140,31 @@ a { color: var(--accent); }
 <section>
   <div class="wrap">
     <h2>Das Problem</h2>
-    <p>Wer aus Dokumenten Wissen extrahiert, legt das Ergebnis meist irgendwo anders ab: in einer
-    Datenbank, einem Wiki, einem Vektorindex. Ab dem Moment laufen Dokument und Wissen
-    auseinander. Jemand ändert einen Absatz in Word, und keiner merkt, dass die Zusammenfassung
-    im Wiki jetzt falsch ist.</p>
-    <p>OfficeMD dreht das um. Das Wissen steckt im Office-Paket selbst, gleich neben dem Text, aus
-    dem es stammt. Jede Aussage trägt ihren Beleg mit, und jeder Beleg lässt sich jederzeit gegen
-    den aktuellen Text prüfen.</p>
+    <p>Wer Office-Dokumente für Suche, Wikis oder Sprachmodelle aufbereitet, legt das Markdown
+    meist irgendwo anders ab. Ab dem Moment laufen Datei und Abzug auseinander: Jemand ändert eine
+    Zahl in Excel, und der Abzug im Wiki stimmt nicht mehr.</p>
+    <p>Carrymark dreht das um. Das Markdown steckt in der Datei selbst, und ein Fingerprint zeigt,
+    ob es noch zum Inhalt passt.</p>
   </div>
 </section>
 
 <section>
   <div class="wrap">
     <h2>So sieht das im Terminal aus</h2>
-<pre class="term"><code><span class="dim">$</span> officemd embed Bericht.docx --graph bericht.knowledge.json
-Eingebettet (graph): Bericht.docx
-  Belege:      <span class="ok">3 von 3 gefunden</span>
+<pre class="term"><code><span class="dim">$</span> carrymark sync ~/Dokumente
+<span class="ok">Aktuell</span>       Projektbericht.docx: Markdown eingebettet (114 Zeichen, markitdown/0.1.8).
+<span class="ok">Aktuell</span>       Umsatz 2026.xlsx: Aktuell, nichts zu tun.
 
-<span class="dim"># Jemand ändert in Word „quartalsweise“ in „monatlich“.</span>
+<span class="dim"># Jemand ändert in Excel eine Zahl.</span>
 
-<span class="dim">$</span> officemd check Bericht.docx
-<span class="warn">Veraltet</span>      Bericht.docx (graph)
-              Text hat sich geändert. <span class="warn">1 von 3 Belegen</span> sind im Dokument
-              nicht mehr auffindbar.
+<span class="dim">$</span> carrymark check "Umsatz 2026.xlsx"
+<span class="warn">Veraltet</span>      Umsatz 2026.xlsx
+              Der Inhalt hat sich seit dem Einbetten geändert.
 
-<span class="dim">$</span> officemd verify Bericht.docx
-2 von 3 Belegen gefunden, 1 nicht auffindbar, 0 nicht prüfbar.
-  <span class="bad">NOT_FOUND</span>     evidence-wartung: excerpt does not occur in the normalized source</code></pre>
-    <p>„Veraltet“ ist hier kein vages Gefühl, sondern eine Zahl. Neu bewertet werden nur die
-    Aussagen, deren Beleg weg ist. Der Rest bleibt, samt Review-Status und menschlicher
-    Ergänzungen.</p>
+<span class="dim">$</span> carrymark export ~/Dokumente --okf -o wissen/
+wissen/projektbericht-docx.md
+wissen/umsatz-2026-xlsx.md
+OKF-Bundle: wissen/index.md</code></pre>
   </div>
 </section>
 
@@ -177,35 +172,27 @@ Eingebettet (graph): Bericht.docx
   <div class="wrap">
     <h2>Wie es funktioniert</h2>
     <ol class="steps">
-      <li><strong>Extrahieren.</strong> Der Text wird deterministisch in Segmente zerlegt, jedes mit
-      genauer Fundstelle: Absatz bei Word, Zeile bei Excel, Absatz und Foliennummer bei PowerPoint.</li>
-      <li><strong>Kompilieren.</strong> Ein Sprachmodell (Claude oder GPT, mit deinem Key) schreibt daraus einen Graphen im
-      <code>.knowledge.json</code>-Format des Knowledge Distillers: Begriffe, Aussagen, Beziehungen,
-      und zu jeder Aussage ein Beleg mit Zitat. Das ist der einzige Schritt mit einem Modell.</li>
-      <li><strong>Prüfen und einbetten.</strong> OfficeMD validiert den Graphen, sucht jedes Zitat
-      im Dokument und bettet nur ein, wenn alle Belege gefunden wurden.</li>
-      <li><strong>Wiederholt prüfen.</strong> <code>officemd check</code> vergleicht den
-      Text-Fingerprint und prüft alle Belege erneut. Offline, ohne Modell.</li>
-      <li><strong>Additiv aktualisieren.</strong> Ein neuer Graph wird gemergt, nie überschrieben.
-      Die alte Fassung landet im Archiv, die Änderung als Diff daneben.</li>
+      <li><strong>Umwandeln.</strong> <a href="https://github.com/microsoft/markitdown">markitdown</a>
+      von Microsoft macht aus Absätzen, Tabellen und Folien sauberes Markdown, lokal auf deinem Rechner.</li>
+      <li><strong>Beschreiben.</strong> Carrymark setzt eine Frontmatter nach dem
+      <a href="https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md">Open Knowledge Format</a>
+      davor: Typ, Titel, Autor, Änderungsdatum, Erzeuger und Fingerprint.</li>
+      <li><strong>Einbetten.</strong> Das Dokument kommt als registrierter Custom-XML-Part ins
+      Office-Paket. Der eigentliche Inhalt der Datei bleibt byte-genau unverändert.</li>
+      <li><strong>Prüfen.</strong> <code>carrymark check</code> vergleicht den Fingerprint mit dem
+      aktuellen Inhalt: aktuell, veraltet oder verloren.</li>
+      <li><strong>Aktualisieren.</strong> <code>carrymark sync</code> bettet neu ein, was sich
+      geändert hat, und holt Verlorenes aus der Sicherung zurück.</li>
     </ol>
-    <p style="margin-top:16px">Den Kompilierschritt übernimmt OfficeMD auf Wunsch selbst:
-    <code>officemd sync</code> prüft jede Datei und lässt veraltete oder neue Dokumente von Claude
-    (Anthropic) oder GPT (OpenAI) mit deinem eigenen API-Key neu kompilieren, nach den Regeln des
-    Knowledge Distillers und mit Korrekturrunden, bis jeder Beleg im Text steht.</p>
-    <p>Ohne KI geht es auch: Im Modus <em>Roh-Markdown</em> bettet OfficeMD einfach einen lesbaren
-    Textabzug ein und prüft die Aktualität über den Fingerprint.</p>
   </div>
 </section>
 
 <section>
   <div class="wrap">
     <h2>Was im Office-Paket passiert</h2>
-    <p>Eine DOCX-, XLSX- oder PPTX-Datei ist ein ZIP-Archiv. OfficeMD legt sein Wissen dort so ab,
-    wie Office selbst Custom-XML-Datastores registriert. Dadurch behandelt Office den Part als
-    Teil seines Datenmodells und nicht als Fremdkörper. Der eigentliche Dokumentinhalt bleibt
-    byte-genau unverändert.</p>
-    <div class="diagram" role="img" aria-label="Aufbau des Office-Pakets mit dem OfficeMD-Part">
+    <p>Eine DOCX-, XLSX- oder PPTX-Datei ist ein ZIP-Archiv. Carrymark legt das Markdown dort so ab,
+    wie Office selbst Custom-XML-Datastores registriert, und Office behält es beim Speichern.</p>
+    <div class="diagram" role="img" aria-label="Aufbau des Office-Pakets mit dem Carrymark-Part">
       <svg viewBox="0 0 860 330" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -214,7 +201,6 @@ Eingebettet (graph): Bericht.docx
         </defs>
         <rect class="frame" x="8" y="8" width="844" height="314" rx="12"/>
         <text x="24" y="34" class="muted">Bericht.docx (ZIP)</text>
-
         <rect class="box" x="30" y="56" width="250" height="44" rx="6"/>
         <text x="44" y="83">word/document.xml</text>
         <rect class="box" x="30" y="116" width="250" height="44" rx="6"/>
@@ -223,17 +209,15 @@ Eingebettet (graph): Bericht.docx
         <text x="44" y="203">_rels/.rels</text>
         <text x="44" y="262" class="muted">Inhalt bleibt unverändert,</text>
         <text x="44" y="282" class="muted">nur Verweise kommen hinzu</text>
-
         <rect class="ours" x="430" y="56" width="400" height="56" rx="6"/>
         <text x="446" y="80">customXml/item1.xml</text>
-        <text x="446" y="100" class="muted">Graph (JSON) + Markdown</text>
+        <text x="446" y="100" class="muted">Markdown mit OKF-Frontmatter</text>
         <rect class="ours" x="430" y="132" width="400" height="56" rx="6"/>
         <text x="446" y="156">customXml/itemProps1.xml</text>
         <text x="446" y="176" class="muted">Datastore-GUID, Schema-Referenz</text>
         <rect class="ours" x="430" y="236" width="400" height="56" rx="6"/>
         <text x="446" y="260">docProps/custom.xml</text>
         <text x="446" y="280" class="muted">Fingerprint, Version, GUID</text>
-
         <path class="edge" d="M280,78 C350,78 360,84 428,84"/>
         <text x="300" y="66" class="muted">customXml</text>
         <path class="edge" d="M630,112 L630,130"/>
@@ -244,112 +228,85 @@ Eingebettet (graph): Bericht.docx
       </svg>
     </div>
     <p style="margin-top:16px">Der kleine Eintrag in <code>docProps/custom.xml</code> ist die
-    Versicherung. Fehlt später der große Part, der Eintrag aber nicht, dann hat ein Programm den
-    Part beim Speichern entfernt. OfficeMD meldet dann <em>Verloren</em> und kann ihn aus dem
-    Sidecar-Ordner <code>Bericht.docx.knowledge/</code> wiederherstellen.</p>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Fünf Zustände</h2>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Zustand</th><th>Woran OfficeMD ihn erkennt</th></tr></thead>
-        <tbody>
-          <tr><td><span class="pill dim">Nie vorhanden</span></td><td>Weder Part noch Fingerprint-Eintrag</td></tr>
-          <tr><td><span class="pill ok">Aktuell</span></td><td>Text-Fingerprint gleich, alle Belege auffindbar</td></tr>
-          <tr><td><span class="pill warn">Veraltet</span></td><td>Text geändert, mit Anzahl der Belege, die fehlen</td></tr>
-          <tr><td><span class="pill bad">Verloren</span></td><td>Fingerprint-Eintrag da, Part weg</td></tr>
-          <tr><td><span class="pill bad">Nicht lesbar</span></td><td>Verschlüsselt, Makros, beschädigt oder unsichere XML-Konstrukte</td></tr>
-        </tbody>
-      </table>
-    </div>
+    Versicherung: Fehlt später der große Part, der Eintrag aber nicht, hat ein Programm den Part
+    entfernt. Carrymark meldet dann <em>Verloren</em> und stellt das Markdown wieder her.</p>
   </div>
 </section>
 
 <section>
   <div class="wrap">
     <h2>Getestet mit echtem Office</h2>
-    <p>Der Selbsttest lässt jede App eine Datei anlegen, bettet einen Graphen ein, öffnet die Datei
+    <p>Der Selbsttest lässt jede App eine Datei anlegen, bettet Markdown ein, öffnet die Datei
     wieder in der App, ergänzt Text und speichert. Danach wird geprüft, was übrig ist.</p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>App (macOS)</th><th>Part</th><th>GUID</th><th>Fingerprint-Eintrag</th><th>Belege danach</th></tr></thead>
+        <thead><tr><th>App (macOS)</th><th>Part</th><th>GUID</th><th>Fingerprint-Eintrag</th><th>Markdown</th></tr></thead>
         <tbody>
-          <tr><td>Word 16.113.4</td><td><span class="pill ok">überlebt</span></td><td>gleich</td><td>da</td><td>1 von 1 gefunden</td></tr>
-          <tr><td>Excel 16.113.3</td><td><span class="pill ok">überlebt</span></td><td>gleich</td><td>da</td><td>1 von 1 gefunden</td></tr>
-          <tr><td>PowerPoint 16.113.3</td><td><span class="pill ok">überlebt</span></td><td>gleich</td><td>da</td><td>1 von 1 gefunden</td></tr>
+          <tr><td>Word 16.113.4</td><td><span class="pill ok">überlebt</span></td><td>gleich</td><td>da</td><td>vollständig</td></tr>
+          <tr><td>Excel 16.113.3</td><td><span class="pill ok">überlebt</span></td><td>gleich</td><td>da</td><td>vollständig</td></tr>
+          <tr><td>PowerPoint 16.113.4</td><td><span class="pill ok">überlebt</span></td><td>gleich</td><td>da</td><td>vollständig</td></tr>
         </tbody>
       </table>
     </div>
     <p class="note" style="margin-top:16px">Noch nicht getestet: Office für Windows und im Browser,
-    der Dokumentinspektor, Pages, Google Docs, LibreOffice. Dass solche Wege den Part entfernen,
-    ist bisher eine Annahme. Genau dafür gibt es den Zustand <em>Verloren</em>.</p>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Gebaut auf Knowledge Distiller</h2>
-    <div class="grid">
-      <div class="card">
-        <h3>Format</h3>
-        <p><code>.knowledge.json</code> mit Begriffen, Aussagen, Beziehungen und Belegen samt
-        Fundstelle. OfficeMD erfindet kein eigenes Format.</p>
-      </div>
-      <div class="card">
-        <h3>Werkzeuge</h3>
-        <p>Validieren, Belege prüfen, Markdown rendern und Mergen übernehmen die unveränderten
-        Distiller-Skripte als Subprozess.</p>
-      </div>
-      <div class="card">
-        <h3>Ergänzt</h3>
-        <p>Text-Fingerprint statt Byte-Hash, Adapter für Excel und PowerPoint, Einbettung ins
-        Office-Paket und das Zustandsmodell.</p>
-      </div>
-    </div>
+    der Dokumentinspektor, Pages, Google Docs, LibreOffice.</p>
   </div>
 </section>
 
 <section>
   <div class="wrap">
     <h2>Auch als Mac-App</h2>
-    <p>Ordner ins Fenster ziehen, und OfficeMD zeigt für jede Office-Datei den Zustand. „Prüfen &amp;
-    aktualisieren“ kompiliert bei Bedarf neu, Anbieter, Modell und API-Key stehen in den
-    Einstellungen. Verlorene Parts lassen sich mit einem Klick aus dem Sidecar zurückholen. Die App ist eine schlanke
-    SwiftUI-Hülle um dasselbe CLI.</p>
-    <img src="app.png" alt="OfficeMD-App: Liste mit Zuständen Aktuell, Nicht lesbar, Nie vorhanden und Verloren, rechts die Details einer verlorenen Excel-Datei mit Knopf zum Wiederherstellen" style="width:100%;height:auto;border:1px solid var(--line);border-radius:10px">
+    <p>Ordner ins Fenster ziehen, und Carrymark zeigt für jede Office-Datei den Zustand und eine
+    Vorschau des Markdowns, Tabellen als Tabellen. Einbetten, aktualisieren, wiederherstellen und
+    als OKF-Bundle exportieren mit einem Klick. Andere Dateitypen nimmt die App gar nicht erst an.</p>
+    <img src="app.png" alt="Carrymark-App: Seitenleiste mit Dateien nach Zustand, rechts eine geänderte Excel-Datei mit Tabellenvorschau" style="width:100%;height:auto;border:1px solid var(--line);border-radius:10px">
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Gebaut auf offener Arbeit</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>microsoft/markitdown</h3>
+        <p>Die Umwandlung nach Markdown. MIT-Lizenz, © Microsoft Corporation.
+        <a href="https://github.com/microsoft/markitdown">GitHub</a></p>
+      </div>
+      <div class="card">
+        <h3>Open Knowledge Format</h3>
+        <p>Vorlage für Frontmatter und Bundles, von Google Cloud Platform.
+        <a href="https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md">Spezifikation</a></p>
+      </div>
+      <div class="card">
+        <h3>Carrymark</h3>
+        <p>Einbetten, Prüfen, Wiederherstellen, Export und die Mac-App. MIT-Lizenz.</p>
+      </div>
+    </div>
   </div>
 </section>
 
 <section>
   <div class="wrap">
     <h2>Loslegen</h2>
-<pre><code>git clone --recurse-submodules https://github.com/GodModeAI2025/OfficeMD.git
-cd OfficeMD
-./officemd selftest                 # Pakettest ohne Office
-./officemd embed Notizen.docx       # Roh-Markdown einbetten, ohne KI
-./officemd check ~/Dokumente        # alle Office-Dateien im Ordner prüfen
-
-./officemd setup-ai                 # optional: SDKs für Claude und GPT
-./officemd config set provider anthropic
-./officemd config set-key anthropic
-./officemd sync ~/Dokumente         # prüfen und bei Bedarf neu kompilieren</code></pre>
-    <p>Python 3.9 oder neuer, ohne KI nur Standardbibliothek. Netzwerkzugriffe gibt es nur beim
-    Kompilieren, und dann nur zum gewählten Anbieter. Keine Telemetrie.</p>
+<pre><code>git clone https://github.com/GodModeAI2025/OfficeMD.git carrymark
+cd carrymark
+./carrymark setup                 # einmalig: Python-Umgebung mit markitdown
+./carrymark sync ~/Dokumente      # prüfen, einbetten, aktualisieren
+./carrymark export ~/Dokumente --okf -o wissen/</code></pre>
+    <p>Python 3.10 oder neuer. Keine Netzwerkzugriffe, keine Telemetrie, keine KI.</p>
   </div>
 </section>
 
 <footer>
-  <div class="wrap">OfficeMD, MIT-Lizenz. Quellcode auf
+  <div class="wrap">Carrymark, MIT-Lizenz. Markdown-Umwandlung durch
+  <a href="https://github.com/microsoft/markitdown">microsoft/markitdown</a>. Quellcode auf
   <a href="https://github.com/GodModeAI2025/OfficeMD">GitHub</a>.</div>
 </footer>
 
 <script>
 (function () {
   var root = document.documentElement;
-  var key = "officemd-theme";
+  var key = "carrymark-theme";
   try {
     var saved = localStorage.getItem(key);
     if (saved) root.setAttribute("data-theme", saved);

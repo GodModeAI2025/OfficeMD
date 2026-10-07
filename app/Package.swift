@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "OfficeMDApp",
+    name: "CarrymarkApp",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "OfficeMDApp", path: "Sources/OfficeMDApp")
+        .executableTarget(name: "CarrymarkApp", path: "Sources/CarrymarkApp")
     ]
 )

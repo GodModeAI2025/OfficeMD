@@ -1,0 +1,55 @@
+{
+  "tool_version": "0.2.0",
+  "macos": "27.2",
+  "date": "2026-10-07T07:54:16+00:00",
+  "office": [
+    {
+      "app": "Microsoft Word",
+      "version": "16.113.4",
+      "created": true,
+      "fingerprint_before": "cm-md-v1:4445b285c392de59e8ed6071f5a205c92d4dfcb95d52b17dedef364d5e2653e1",
+      "state_after_save": "stale",
+      "part_survived": true,
+      "part_registered": true,
+      "payload_intact": true,
+      "props_survived": true,
+      "guid_kept": true,
+      "saved_by": "Microsoft Office Word",
+      "warnings": [],
+      "markdown_after_save": "vollständig",
+      "ok": true
+    },
+    {
+      "app": "Microsoft Excel",
+      "version": "16.113.3",
+      "created": true,
+      "fingerprint_before": "cm-md-v1:5ae7aee4bca1727d90994d94cab4a3c6c91c3ec47a57e891dd483fd519b72881",
+      "state_after_save": "stale",
+      "part_survived": true,
+      "part_registered": true,
+      "payload_intact": true,
+      "props_survived": true,
+      "guid_kept": true,
+      "saved_by": "Microsoft Macintosh Excel",
+      "warnings": [],
+      "markdown_after_save": "vollständig",
+      "ok": true
+    },
+    {
+      "app": "Microsoft PowerPoint",
+      "version": "16.113.4",
+      "created": true,
+      "fingerprint_before": "cm-md-v1:3a8df83dd6eee229f454006775b36763958d125cd4fc708be03cc976fea0c8ec",
+      "state_after_save": "stale",
+      "part_survived": true,
+      "part_registered": true,
+      "payload_intact": true,
+      "props_survived": true,
+      "guid_kept": true,
+      "saved_by": "Microsoft Macintosh PowerPoint",
+      "warnings": [],
+      "markdown_after_save": "vollständig",
+      "ok": true
+    }
+  ]
+}

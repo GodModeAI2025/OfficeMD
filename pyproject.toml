@@ -3,19 +3,18 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "officemd"
-version = "0.1.0"
-description = "OfficeMD: Wissen aus Knowledge Distiller in DOCX, XLSX und PPTX einbetten und prüfen"
-requires-python = ">=3.9"
+name = "carrymark"
+version = "0.2.0"
+description = "Markdown (via microsoft/markitdown) in DOCX, XLSX und PPTX einbetten und aktuell halten"
+requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = []
+dependencies = ["markitdown[docx,xlsx,pptx]>=0.1.8"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
-ai = ["anthropic>=1", "openai>=1"]
 
 [project.scripts]
-officemd = "officemd.cli:main"
+carrymark = "carrymark.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

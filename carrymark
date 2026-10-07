@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Startskript ohne Installation: ./officemd check Datei.docx
+"""Startskript ohne Installation: ./carrymark check Datei.docx
 
-Gibt es neben dem Skript eine .venv (angelegt mit ./officemd setup-ai), läuft OfficeMD mit
+Gibt es neben dem Skript eine .venv (angelegt mit ./carrymark setup-ai), läuft Carrymark mit
 deren Python, damit die KI-SDKs verfügbar sind.
 """
 import os
@@ -15,6 +15,6 @@ if venv_python.is_file() and Path(sys.prefix).resolve() != (root / ".venv").reso
 
 sys.path.insert(0, str(root / "src"))
 
-from officemd.cli import main  # noqa: E402
+from carrymark.cli import main  # noqa: E402
 
 raise SystemExit(main())

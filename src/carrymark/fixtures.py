@@ -95,6 +95,18 @@ def make_xlsx(path: Path, sheets: Dict[str, List[List[str]]]) -> Path:
     return _write(Path(path), parts)
 
 
+# Pflichtelemente, die python-pptx (und damit markitdown) beim Lesen erwartet.
+_GROUP = ('<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+          "<p:grpSpPr/>")
+
+
+def _shape(shape_id: int, name: str, paragraphs: str, notes: bool = False) -> str:
+    placeholder = '<p:ph type="body" idx="1"/>' if notes else ""
+    return (f'<p:sp><p:nvSpPr><p:cNvPr id="{shape_id}" name="{name}"/><p:cNvSpPr{"" if notes else " txBox=\"1\""}/>'
+            f"<p:nvPr>{placeholder}</p:nvPr></p:nvSpPr><p:spPr/>"
+            f"<p:txBody><a:bodyPr/><a:lstStyle/>{paragraphs}</p:txBody></p:sp>")
+
+
 def make_pptx(path: Path, slides: List[List[str]], notes: Optional[Dict[int, str]] = None) -> Path:
     notes = notes or {}
     pml = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -107,13 +119,15 @@ def make_pptx(path: Path, slides: List[List[str]], notes: Optional[Dict[int, str
         paras = "".join(f"<a:p><a:r><a:t>{escape(t)}</a:t></a:r></a:p>" for t in paragraphs)
         parts[f"ppt/slides/slide{i}.xml"] = (
             DECL + f'<p:sld xmlns:p="{pml}" xmlns:a="{dml}"><p:cSld><p:spTree>'
-            f"<p:sp><p:txBody>{paras}</p:txBody></p:sp></p:spTree></p:cSld></p:sld>")
+            + _GROUP + _shape(2, "Text", paras) + "</p:spTree></p:cSld></p:sld>")
         slide_rels = ""
         if i in notes:
             parts[f"ppt/notesSlides/notesSlide{i}.xml"] = (
-                DECL + f'<p:notes xmlns:p="{pml}" xmlns:a="{dml}"><p:cSld><p:spTree><p:sp><p:txBody>'
-                f"<a:p><a:r><a:t>{escape(notes[i])}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>")
+                DECL + f'<p:notes xmlns:p="{pml}" xmlns:a="{dml}"><p:cSld><p:spTree>'
+                + _GROUP + _shape(2, "Notes", f"<a:p><a:r><a:t>{escape(notes[i])}</a:t></a:r></a:p>", notes=True)
+                + "</p:spTree></p:cSld></p:notes>")
             slide_rels = f'<Relationship Id="rId1" Type="{R}/notesSlide" Target="../notesSlides/notesSlide{i}.xml"/>'
+            overrides.append(f'<Override PartName="/ppt/notesSlides/notesSlide{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>')
         parts[f"ppt/slides/_rels/slide{i}.xml.rels"] = DECL + f'<Relationships xmlns="{REL_NS}">{slide_rels}</Relationships>'
         ids.append(f'<p:sldId id="{255 + i}" r:id="rId{i}"/>')
         rels.append(f'<Relationship Id="rId{i}" Type="{R}/slide" Target="slides/slide{i}.xml"/>')
@@ -131,84 +145,3 @@ def make_pptx(path: Path, slides: List[List[str]], notes: Optional[Dict[int, str
         "ppt/_rels/presentation.xml.rels": DECL + f'<Relationships xmlns="{REL_NS}">{"".join(rels)}</Relationships>',
     })
     return _write(Path(path), parts)
-
-
-def make_graph(path: Path, *, file_name: str, file_type: str, content_sha256: str,
-               quotes: Dict[str, str], source_id: str = "source-doc",
-               human_added: Optional[str] = None) -> Path:
-    """Kleiner Spec-1.1-Graph: je Zitat ein Knoten, ein Claim und ein Beleg."""
-    evidence = []
-    nodes = []
-    claims = []
-    for key, quote in quotes.items():
-        evidence.append({
-            "id": f"evidence-{key}",
-            "source": source_id,
-            "selector": {"type": "TextQuoteSelector", "exact": quote},
-            "support": "supports",
-            "attribution_basis": "source_explicit",
-            "excerpt": quote,
-            "review_status": "unreviewed",
-        })
-        nodes.append({
-            "id": key,
-            "label": key.replace("-", " ").title(),
-            "cluster": "main",
-            "confidence": "high",
-            "definition": f"Begriff {key} aus dem Testdokument.",
-            "relevance": "Testknoten.",
-            "statements": [quote],
-            "temporal": {"source_date": "2026-10", "valid_from": None, "valid_until": None,
-                         "temporal_confidence": "unknown"},
-            "sources": [source_id],
-            "evidence": [f"evidence-{key}"],
-            "claim_ids": [f"claim-{key}"],
-        })
-        claims.append({
-            "id": f"claim-{key}",
-            "node": key,
-            "statement": quote,
-            "confidence": "high",
-            "origin": "source_stated",
-            "evidence": [f"evidence-{key}"],
-            "review_status": "unreviewed",
-        })
-    if human_added:
-        evidence.append({
-            "id": "evidence-human-note",
-            "source": source_id,
-            "selector": {"type": "TextQuoteSelector", "exact": human_added},
-            "support": "contextualizes",
-            "attribution_basis": "human_added",
-            "review_status": "reviewed",
-        })
-    keys = list(quotes)
-    edges = []
-    if len(keys) > 1:
-        edges.append({
-            "id": f"{keys[0]}__uses__{keys[1]}",
-            "source": keys[0], "target": keys[1], "type": "uses",
-            "label": "uses", "weight": 1.0, "confidence": "medium",
-            "evidence": [f"evidence-{keys[0]}"], "origin": "source_stated",
-        })
-    graph = {
-        "metadata": {
-            "title": f"Wissen zu {file_name}",
-            "distiller_version": "4.0",
-            "distiller_spec_version": "1.1",
-            "sources": [{"id": source_id, "file": file_name, "type": file_type,
-                         "content_sha256": content_sha256}],
-            "distillation_date": "2026-10-06",
-            "domain": "Test",
-            "language": "de",
-            "depth": "standard",
-            "mode": "fresh",
-        },
-        "evidence": evidence,
-        "clusters": [{"id": "main", "label": "Main", "description": "Testcluster", "concepts": keys}],
-        "nodes": nodes,
-        "claims": claims,
-        "edges": edges,
-    }
-    Path(path).write_text(json.dumps(graph, ensure_ascii=False, indent=2), encoding="utf-8")
-    return Path(path)

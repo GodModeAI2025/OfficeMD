@@ -12,3 +12,5 @@ app/.swiftpm/
 .DS_Store
 dist/
 build/
+*.carrymark/
+*.officemd/
