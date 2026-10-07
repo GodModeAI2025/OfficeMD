@@ -154,6 +154,7 @@ def cmd_config(args) -> int:
         print(f"  mode            {info['mode']}")
         print(f"  depth           {info['depth']}")
         print(f"  max_input_chars {info['max_input_chars']}")
+        print(f"  section_chars   {info['section_chars']}")
         print(f"  repair_rounds   {info['repair_rounds']}")
         for name, p in info["providers"].items():
             extra = ", fallbacks" if p.get("fallbacks") else ""
@@ -201,7 +202,8 @@ def cmd_compile(args) -> int:
     result = compiler.compile_document(
         path, provider, depth=args.depth or cfg.get("depth", "standard"),
         repair_rounds=int(cfg.get("repair_rounds", 2)),
-        max_input_chars=int(cfg.get("max_input_chars", 400_000)), log=_log)
+        max_input_chars=int(cfg.get("max_input_chars", 2_000_000)),
+        section_chars=int(cfg.get("section_chars", 120_000)), log=_log)
     out = Path(args.output) if args.output else path.with_name(path.stem + ".knowledge.json")
     out.write_text(result.graph_text, encoding="utf-8")
     ev = result.evidence or {}

@@ -35,7 +35,8 @@ DEFAULTS: Dict[str, Any] = {
     "provider": None,
     "mode": "graph",
     "depth": "standard",
-    "max_input_chars": 400_000,
+    "max_input_chars": 2_000_000,
+    "section_chars": 120_000,
     "repair_rounds": 2,
     "anthropic": {"model": "claude-opus-5-5", "effort": "high", "fallbacks": True},
     "openai": {"model": "gpt-6-astra", "effort": "high"},
@@ -241,6 +242,7 @@ def describe(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "mode": cfg.get("mode"),
         "depth": cfg.get("depth"),
         "max_input_chars": cfg.get("max_input_chars"),
+        "section_chars": cfg.get("section_chars"),
         "repair_rounds": cfg.get("repair_rounds"),
         "providers": {
             p: {**cfg.get(p, {}), "key_source": get_key(p)[1], "sdk_available": sdk_available(p)}

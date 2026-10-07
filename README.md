@@ -108,8 +108,20 @@ OfficeMD daraus selbst, samt Quelle, Selektoren, Herkunft und Review-Status. Zä
 berechnet `build_graph.py`. Danach laufen `validate_knowledge.py` und `verify_evidence.py`.
 Findet sich ein Zitat nicht wörtlich im Dokument oder ist der Graph nicht konform, gehen die
 Fehler mit der vorherigen Ausgabe zurück ans Modell. Nach zwei erfolglosen Korrekturrunden
-bricht OfficeMD ab und bettet nichts ein, wie es `SKILL.md` verlangt. Gekürzt wird nie: Ist ein
-Dokument größer als `max_input_chars` (Standard 400.000 Zeichen), meldet OfficeMD das.
+bricht OfficeMD ab und bettet nichts ein, wie es `SKILL.md` verlangt.
+
+**Fakten und Chunks.** Konkrete Werte wie Beträge, Termine, Zählungen oder Grenzwerte liefert das
+Modell als Fakten, jeweils mit Beleg, der den Wert wörtlich enthält. Widersprüchliche Werte
+bleiben beide erhalten. Die Retrieval-Chunks schreibt nicht das Modell, sondern OfficeMD: je
+Begriff ein `source_claims`-Chunk aus Definition und belegten Aussagen, bereinigt nach SPEC §4.9,
+höchstens 4.000 Zeichen, mit Verweis auf die Belege. Begriffe ohne Beleg bekommen keinen Chunk.
+
+**Große Dokumente.** Über `section_chars` (Standard 120.000 Zeichen) wird das Dokument an
+Segmentgrenzen in Abschnitte geteilt. Jeder Abschnitt wird für sich kompiliert und geprüft,
+mit eigenen Korrekturrunden. Spätere Abschnitte bekommen die Liste der bereits angelegten
+Begriffe und verwenden deren IDs weiter. Zum Schluss führt OfficeMD alles zu einem Graphen
+zusammen und prüft ihn als Ganzes. Gekürzt wird nie. `max_input_chars` (Standard 2 Millionen
+Zeichen) ist nur eine Kostenbremse; darüber meldet OfficeMD das, statt anzufangen.
 
 **Anbieter und Voreinstellungen.**
 

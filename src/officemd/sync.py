@@ -47,9 +47,11 @@ def _compile_and_embed(path: Path, cfg: Dict[str, Any], provider_factory, log: L
     result = compiler.compile_document(
         path, provider, depth=cfg.get("depth", "standard"),
         repair_rounds=int(cfg.get("repair_rounds", 2)),
-        max_input_chars=int(cfg.get("max_input_chars", 400_000)),
+        max_input_chars=int(cfg.get("max_input_chars", 2_000_000)),
+        section_chars=int(cfg.get("section_chars", 120_000)),
         old_graph=old_graph, source_id=source_id, log=log)
     info = {"provider": result.provider, "model": result.model, "rounds": result.rounds,
+            "sections": result.sections,
             "carried_human_additions": result.carried, "compiled_at": ops.now()}
     with tempfile.TemporaryDirectory(prefix="omd-sync-") as tmp:
         graph_path = Path(tmp) / "graph.knowledge.json"

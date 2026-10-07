@@ -69,8 +69,14 @@ Entscheidungen:
   Spec-Graphen baut OfficeMD selbst. So hängen Format, IDs, Quelle und Herkunftsfelder nie am
   Modell, und das Schema bleibt mit den strikten Modi beider Anbieter verträglich.
 - Prompt aus `SKILL.md` („Nicht tun“, Phase 2 bis vor 2.7) und `profiles/default.json`, zur
-  Laufzeit aus dem Submodule gelesen. Fakten, Chunks, räumliche Angaben und Inferenz bleiben
-  vorerst draußen, wie es das Standardprofil ohnehin vorsieht.
+  Laufzeit aus dem Submodule gelesen. Räumliche Angaben und Inferenz bleiben draußen, wie es das
+  Standardprofil vorsieht.
+- Fakten liefert das Modell (Wert als Text, Beleg enthält den Wert). Chunks erzeugt der Code je
+  Begriff aus Definition und belegten Aussagen, das kostet keine Token und hält SPEC §4.9 ein.
+- Große Dokumente: Abschnitte an Segmentgrenzen (`section_chars`), je Abschnitt eigene
+  Korrekturrunden, bekannte Begriffe werden an spätere Abschnitte weitergegeben, danach
+  Zusammenführung mit ID-Präfixen je Abschnitt und Gesamtprüfung. Beziehungen zwischen
+  Begriffen, die nur in verschiedenen Abschnitten vorkommen, entstehen so nicht.
 - Korrekturschleife: build_graph, validate, verify; Fehler zurück ans Modell, höchstens zwei
   Runden, danach Abbruch ohne Einbetten.
 - Offizielle SDKs (`anthropic`, `openai`) als optionales Extra; der Rest bleibt
@@ -102,5 +108,3 @@ Modellausgaben zum Testen vorliegen.
 - KI-Kompilierung mit gültigem Key gegen beide Anbieter laufen lassen; Prompt und Schema an
   echten Ausgaben nachschärfen.
 - Delta-Merge für veraltete Graphen (siehe Abschnitt 5).
-- Fakten (`facts[]`) und Chunks im Ausgabeschema ergänzen.
-- Sehr große Dokumente in Abschnitten kompilieren statt abzulehnen.

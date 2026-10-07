@@ -321,3 +321,80 @@ def test_cli_set_key_reads_stdin_like_the_app(cfg, monkeypatch, capsys) -> None:
     assert cli.main(["config", "set", "provider", "openai"]) == 0
     assert cli.main(["config", "set", "provider", "none"]) == 0
     assert config.load()["provider"] is None
+
+
+# -- Fakten, Chunks, Abschnitte -------------------------------------------------------------
+
+def with_fact(data: Dict[str, Any], quote: str, value: str) -> Dict[str, Any]:
+    data = json.loads(json.dumps(data))
+    data["evidence"].append({"id": "evidence-wert", "quote": quote, "support": "supports"})
+    data["facts"] = [{"id": "fact-wartung", "statement": "Wartungsintervall", "value": value,
+                      "metric": "Intervall", "concept": "wartung", "context": None, "confidence": "high",
+                      "evidence": ["evidence-wert"], "valid_from": "2026-05", "valid_until": None,
+                      "temporal_confidence": "explicit"}]
+    return data
+
+
+def test_facts_are_assembled_and_verified(docx: Path) -> None:
+    fake = FakeProvider([with_fact(compact(ALL), "quartalsweise", "quartalsweise")])
+    result = compiler.compile_document(docx, fake)
+    graph = json.loads(result.graph_text)
+    fact = graph["facts"][0]
+    assert fact["id"] == "fact-wartung" and fact["concept"] == "wartung" and fact["source"] == "source-bericht"
+    assert fact["value"] == "quartalsweise" and fact["temporal"]["valid_from"] == "2026-05"
+    assert result.evidence["counts"] == {"verified": 4, "not_found": 0, "unverifiable": 0}
+
+
+def test_fact_with_invented_value_is_repaired(docx: Path) -> None:
+    bad = with_fact(compact(ALL), "monatlich", "monatlich")
+    good = with_fact(compact(ALL), "quartalsweise", "quartalsweise")
+    fake = FakeProvider([bad, good])
+    assert compiler.compile_document(docx, fake).rounds == 2
+
+
+def test_chunks_are_clean_evidence_backed_and_bounded() -> None:
+    graph = {"nodes": [
+        {"id": "a", "label": "Alpha", "definition": "Erster -> zweiter **Schritt**", "evidence": ["e1"],
+         "statements": ["Satz " + "x" * 3000, "Noch ein Satz " + "y" * 3000], "temporal": {"valid_from": "2026"}},
+        {"id": "b", "label": "Beta", "definition": "ohne Beleg", "evidence": [], "statements": ["s"]},
+    ]}
+    chunks = compiler.build_chunks(graph)
+    assert [c["id"] for c in chunks] == ["chunk-a-1", "chunk-a-2"]
+    for chunk in chunks:
+        assert len(chunk["text"]) <= compiler.MAX_CHUNK_CHARS
+        assert "->" not in chunk["text"] and "**" not in chunk["text"]
+        assert chunk["kind"] == "source_claims" and chunk["include_in_default_retrieval"] is True
+        assert chunk["evidence"] == ["e1"] and chunk["temporal_scope"] == "2026"
+
+
+def test_compiled_graph_carries_chunks(docx: Path) -> None:
+    result = compiler.compile_document(docx, FakeProvider([compact(ALL)]))
+    graph = json.loads(result.graph_text)
+    assert {c["id"] for c in graph["chunks"]} == {"chunk-anlage", "chunk-wartung", "chunk-team"}
+
+
+def test_large_document_is_compiled_in_sections(workdir: Path) -> None:
+    paras = [f"Absatz {i}: Die Pumpe {i} läuft mit Stufe {i}." for i in range(1, 9)]
+    path = make_docx(workdir / "Gross.docx", paras)
+    first = compact({"pumpe": paras[0], "stufe": paras[1]})
+    # Abschnitt 2 greift den Begriff "pumpe" wieder auf und ergänzt einen neuen.
+    second = compact({"pumpe": paras[5], "lager": paras[6]})
+    fake = FakeProvider([first, second])
+    total = sum(len(p) for p in paras)
+    result = compiler.compile_document(path, fake, section_chars=total // 2 + 5)
+    assert result.sections == 2 and len(fake.calls) == 2
+    assert "Abschnitt 2 von 2" in fake.calls[1]["user"]
+    assert "- pumpe: Pumpe" in fake.calls[1]["user"]
+    assert paras[0] in fake.calls[0]["user"] and paras[0] not in fake.calls[1]["user"]
+    graph = json.loads(result.graph_text)
+    assert {n["id"] for n in graph["nodes"]} == {"pumpe", "stufe", "lager"}
+    pumpe = next(n for n in graph["nodes"] if n["id"] == "pumpe")
+    assert paras[0] in pumpe["statements"] and paras[5] in pumpe["statements"]
+    assert {e["id"] for e in graph["evidence"]} >= {"evidence-s1-pumpe", "evidence-s2-pumpe"}
+    assert result.evidence["counts"]["not_found"] == 0
+
+
+def test_split_sections_keeps_segment_boundaries() -> None:
+    segments = [{"text": "a" * 40}, {"text": "b" * 40}, {"text": "c" * 40}]
+    assert [len(s) for s in compiler.split_sections(segments, 85)] == [2, 1]
+    assert [len(s) for s in compiler.split_sections(segments, 10)] == [1, 1, 1]
