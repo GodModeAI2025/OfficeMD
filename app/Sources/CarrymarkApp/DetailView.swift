@@ -145,8 +145,14 @@ struct DetailView: View {
     // MARK: Vorschau
 
     private func previewCard(_ text: String) -> some View {
-        Card(title: report.embedded ? "Eingebettetes Markdown" : "Markdown-Vorschau",
-             symbol: "text.alignleft") {
+        Card(title: report.markdownSource.title,
+             symbol: report.markdownSource == .embedded ? "text.alignleft" : "doc.text.magnifyingglass") {
+            if let note = report.markdownSource.note {
+                Label(note, systemImage: "info.circle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             let lines = text.components(separatedBy: "\n")
             MarkdownPreview(text: lines.prefix(40).joined(separator: "\n"))
                 .frame(maxHeight: 360, alignment: .top)

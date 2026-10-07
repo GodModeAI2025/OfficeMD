@@ -37,7 +37,14 @@ extension Notification.Name {
 
 @MainActor
 final class Store: ObservableObject {
-    @Published var roots: [URL] = []
+    /// Aufgenommene Ordner und Dateien; bleiben über Neustarts erhalten.
+    @Published var roots: [URL] = [] {
+        didSet {
+            if !LaunchOptions.current.isScripted {
+                UserDefaults.standard.set(roots.map(\.path), forKey: "roots")
+            }
+        }
+    }
     @Published var reports: [FileReport] = []
     @Published var selection: FileReport.ID?
     @Published var busy = false
@@ -54,8 +61,10 @@ final class Store: ObservableObject {
     init() {
         // Pfade aus der Kommandozeile übernehmen: Carrymark ~/Dokumente
         let options = LaunchOptions.current
-        roots = options.paths.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-            .filter(Self.isSupported)
+        let saved = options.paths.isEmpty && !options.isScripted
+            ? UserDefaults.standard.stringArray(forKey: "roots") ?? [] : options.paths
+        roots = saved.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) && Self.isSupported($0) }
         guard !roots.isEmpty || options.snapshot != nil else { return }
         Task {
             await refresh()
@@ -92,6 +101,11 @@ final class Store: ObservableObject {
         Task { await refresh() }
     }
 
+    func remove(_ root: URL) {
+        roots.removeAll { $0 == root }
+        reports.removeAll { $0.file == root.path }
+    }
+
     /// Prüft alle Wurzeln oder nur die genannten Dateien und führt das Ergebnis zusammen.
     func refresh(only files: [String]? = nil) async {
         guard !roots.isEmpty else { reports = []; return }
@@ -104,6 +118,9 @@ final class Store: ObservableObject {
                 let touched = Set(files)
                 merged = (reports + skipped).filter { !touched.contains($0.file) } + fresh
             }
+            // Jede Datei nur einmal, auch wenn sie einzeln und über ihren Ordner aufgenommen wurde.
+            var seen = Set<String>()
+            merged = merged.reversed().filter { seen.insert(($0.file as NSString).standardizingPath).inserted }.reversed()
             // Nur bewerten, was Carrymark verarbeiten kann; der Rest wird als übersprungen gemeldet.
             withAnimation(.snappy) {
                 reports = merged.filter { $0.status != .unreadable }
@@ -162,7 +179,12 @@ final class Store: ObservableObject {
     /// Eingebettet: genau das, was in der Datei steckt. Sonst frisch umgewandelt.
     func markdownText(for report: FileReport) async throws -> String {
         if let cached = markdownCache[report] { return cached }
-        let text = try await cli.action([report.embedded ? "render" : "convert", report.file])
+        let text: String
+        if let backup = report.backupMarkdownPath, report.status == .lost {
+            text = try String(contentsOfFile: backup, encoding: .utf8)
+        } else {
+            text = try await cli.action([report.embedded ? "render" : "convert", report.file])
+        }
         markdownCache[report] = text
         return text
     }
@@ -209,7 +231,7 @@ final class Store: ObservableObject {
     func showMarkdown(for report: FileReport) async {
         do {
             let text = try await markdownText(for: report)
-            markdown = MarkdownDocument(title: report.fileName, text: text, embedded: report.embedded)
+            markdown = MarkdownDocument(title: report.fileName, text: text, source: report.markdownSource)
         } catch {
             self.error = error.localizedDescription
         }
@@ -225,7 +247,7 @@ struct MarkdownDocument: Identifiable {
     let id = UUID()
     let title: String
     let text: String
-    var embedded = true
+    var source: MarkdownSource = .embedded
 }
 
 /// Startargumente: Pfade, dazu für Tests `--select Datei`, `--snapshot bild.png`,
@@ -239,6 +261,9 @@ struct LaunchOptions {
     var settings = false
     var markdown = false
     var dark = false
+
+    /// Snapshot-Läufe für Tests verändern die gespeicherte Dateiliste nicht.
+    var isScripted: Bool { snapshot != nil }
 
     static func parse(_ arguments: [String]) -> LaunchOptions {
         var options = LaunchOptions()

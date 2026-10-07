@@ -328,3 +328,8 @@ def test_export_keeps_same_named_files_apart(workdir: Path) -> None:
 def test_okf_index_escapes_brackets() -> None:
     index = converter.okf_index([("Plan [v2].docx", "/plan-v2-docx.md", "DOCX-Dokument")])
     assert "* [Plan \\[v2\\].docx](/plan-v2-docx.md)" in index
+
+
+def test_office_files_lists_each_file_once(workdir: Path, docx: Path) -> None:
+    files, _ = ops.office_files([workdir, docx, workdir / "." / docx.name])
+    assert files == [docx]

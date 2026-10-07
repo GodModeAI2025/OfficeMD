@@ -292,13 +292,16 @@ def _is_candidate(f: Path) -> bool:
 
 def office_files(paths: List[Path]) -> Tuple[List[Path], List[Path]]:
     """(verarbeitbare Office-Dateien, ausdrücklich genannte, aber nicht unterstützte Dateien)."""
-    found: List[Path] = []
+    found: Dict[Path, Path] = {}  # aufgelöster Pfad -> wie angegeben; jede Datei nur einmal
     ignored: List[Path] = []
     for p in map(Path, paths):
         if p.is_dir():
-            found += [f for f in sorted(p.rglob("*")) if f.is_file() and _is_candidate(f)]
+            candidates = [f for f in sorted(p.rglob("*")) if f.is_file() and _is_candidate(f)]
         elif p.suffix.lower() in ooxml.SUPPORTED_SUFFIXES:
-            found.append(p)
+            candidates = [p]
         else:
             ignored.append(p)
-    return found, ignored
+            continue
+        for f in candidates:
+            found.setdefault(f.resolve(), f)
+    return list(found.values()), ignored

@@ -43,6 +43,19 @@ struct FileReport: Decodable, Identifiable, Hashable {
     var kind: DocKind { DocKind(path: file) }
     var status: DocState { DocState(rawValue: state) ?? .unreadable }
 
+    /// Gesicherte Fassung im Sidecar-Ordner, falls vorhanden.
+    var backupMarkdownPath: String? {
+        guard let sidecar, sidecar.restorable, let path = sidecar.path else { return nil }
+        return (path as NSString).appendingPathComponent("markdown.md")
+    }
+
+    /// Woher das gezeigte Markdown stammt; entscheidet über die Beschriftung.
+    var markdownSource: MarkdownSource {
+        if embedded { return .embedded }
+        if status == .lost, backupMarkdownPath != nil { return .backup }
+        return .preview
+    }
+
     /// Datum der Einbettung, lokal formatiert.
     var embeddedDate: String? {
         guard let raw = part?.embeddedAt, let date = try? Date(raw, strategy: .iso8601) else { return nil }
@@ -71,6 +84,26 @@ enum CLIError: LocalizedError {
             return "carrymark nicht gefunden (\(path)). Pfad in den Einstellungen setzen."
         case .failed(let message):
             return message
+        }
+    }
+}
+
+enum MarkdownSource {
+    case embedded, backup, preview
+
+    var title: String {
+        switch self {
+        case .embedded: return "Eingebettetes Markdown"
+        case .backup: return "Sicherung, nicht in der Datei"
+        case .preview: return "Vorschau, noch nicht in der Datei"
+        }
+    }
+
+    var note: String? {
+        switch self {
+        case .embedded: return nil
+        case .backup: return "Diese Fassung liegt im Sidecar-Ordner. „Wiederherstellen“ schreibt sie zurück in die Datei."
+        case .preview: return "So würde markitdown den aktuellen Inhalt umwandeln. In der Datei steckt dieses Markdown noch nicht."
         }
     }
 }

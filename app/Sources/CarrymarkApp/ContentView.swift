@@ -101,6 +101,10 @@ struct ContentView: View {
 
     @ViewBuilder
     private func rowMenu(_ report: FileReport) -> some View {
+        if let root = store.roots.first(where: { $0.path == report.file }) {
+            Button("Aus der Liste entfernen") { store.remove(root) }
+            Divider()
+        }
         Button("Aktualisieren") { Task { await store.sync([report.file], label: report.fileName) } }
             .disabled(report.status == .unreadable || report.status == .current)
         Button("Als .md sichern") { Task { await store.exportMarkdown(for: report) } }

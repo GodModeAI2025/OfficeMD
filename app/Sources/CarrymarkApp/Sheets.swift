@@ -12,7 +12,7 @@ struct MarkdownSheet: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(document.embedded ? "Eingebettetes Markdown" : "Markdown-Vorschau").font(.headline)
+                    Text(document.source.title).font(.headline)
                     Text(document.title).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
