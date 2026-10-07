@@ -88,7 +88,7 @@ struct ContentView: View {
                 ContentUnavailableView {
                     Label("Noch keine Dateien", systemImage: "doc.on.doc")
                 } description: {
-                    Text("Ziehe einen Ordner oder Office-Dateien hierher.")
+                    Text("Ziehe einen Ordner, Office-Dateien oder PDFs hierher.")
                 } actions: {
                     Button("Ordner hinzufügen …") { importing = true }
                         .buttonStyle(.borderedProminent)
@@ -217,7 +217,7 @@ struct SkippedFooter: View {
         .popover(isPresented: $showing, arrowEdge: .trailing) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Nicht verarbeitbar").font(.headline)
-                Text("Diese Dateien haben ein unterstütztes Format, Carrymark kann sie aber nicht lesen, zum Beispiel weil sie verschlüsselt, makrofähig oder beschädigt sind.")
+                Text("Diese Dateien haben ein unterstütztes Format, Carrymark kann sie aber nicht verarbeiten, zum Beispiel weil sie verschlüsselt, signiert, makrofähig oder beschädigt sind.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -285,7 +285,7 @@ struct WelcomeView: View {
                 .foregroundStyle(.tint)
             VStack(spacing: 6) {
                 Text("Markdown, das in der Datei bleibt").font(.title2.weight(.semibold))
-                Text("Carrymark wandelt Word, Excel und PowerPoint mit microsoft/markitdown in Markdown um, legt es direkt in die Datei und sagt dir, wann es nicht mehr zum Inhalt passt.")
+                Text("Carrymark wandelt Word, Excel, PowerPoint und PDF mit microsoft/markitdown in Markdown um, legt es direkt in die Datei und sagt dir, wann es nicht mehr zum Inhalt passt.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 440)

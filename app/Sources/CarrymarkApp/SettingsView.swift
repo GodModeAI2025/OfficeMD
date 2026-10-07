@@ -55,7 +55,7 @@ struct AboutView: View {
                 .resizable()
                 .frame(width: 72, height: 72)
             Text("Carrymark").font(.title2.weight(.semibold))
-            Text("Markdown, das in der Office-Datei bleibt.")
+            Text("Markdown, das in der Datei bleibt.")
                 .foregroundStyle(.secondary)
             Divider().padding(.horizontal, 60)
             VStack(alignment: .leading, spacing: 10) {

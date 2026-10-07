@@ -1,8 +1,8 @@
 # Carrymark
 
-Markdown, das in der Datei bleibt. Carrymark wandelt Word-, Excel- und PowerPoint-Dateien mit
-**[microsoft/markitdown](https://github.com/microsoft/markitdown)** in Markdown um, legt das
-Ergebnis direkt in die Office-Datei und merkt später, ob es noch zum Inhalt passt.
+Markdown, das in der Datei bleibt. Carrymark wandelt Word-, Excel-, PowerPoint- und PDF-Dateien
+mit **[microsoft/markitdown](https://github.com/microsoft/markitdown)** in Markdown um, legt das
+Ergebnis direkt in die Datei und merkt später, ob es noch zum Inhalt passt.
 
 Keine KI, kein Netz: alles läuft lokal auf deinem Rechner.
 
@@ -13,7 +13,8 @@ Landingpage: [godmodeai2025.github.io/OfficeMD](https://godmodeai2025.github.io/
 ## Wofür
 
 - **Die Datei trägt ihr Markdown selbst.** Wer sie per Mail bekommt, bekommt die
-  Markdown-Fassung mit, als regulären Custom-XML-Part im Office-Paket.
+  Markdown-Fassung mit: in Office-Dateien als regulären Custom-XML-Part, in PDFs als Anhang
+  `carrymark.md`, so wie ZUGFeRD-Rechnungen ihr XML tragen.
 - **Veraltet wird erkannt.** Ändert jemand die Datei, merkt Carrymark das und bettet auf Wunsch
   neu ein. Ein `sync` über einen ganzen Ordner hält alles aktuell.
 - **Verlust wird erkannt.** Entfernt ein Programm den Part beim Speichern, bleibt ein kleiner
@@ -27,13 +28,16 @@ Landingpage: [godmodeai2025.github.io/OfficeMD](https://godmodeai2025.github.io/
 
 Die eigentliche Arbeit macht **[markitdown](https://github.com/microsoft/markitdown)** von
 Microsoft (MIT-Lizenz): Absätze und Überschriften aus Word, Tabellen je Blatt aus Excel, Folien
-samt Sprechernotizen aus PowerPoint. Carrymark ruft markitdown lokal auf und kümmert sich um
+samt Sprechernotizen aus PowerPoint, Text aus PDFs. Carrymark ruft markitdown lokal auf und kümmert sich um
 das Einbetten, Prüfen, Wiederherstellen und Exportieren. Die verwendete markitdown-Version steht
 in jedem eingebetteten Dokument (`converter: "markitdown/0.1.8"`).
 
-markitdown kann mehr Formate lesen (PDF, HTML, Bilder, Audio). Einbetten lässt sich Markdown aber
-nur in Office-Dateien, weil nur sie dafür einen Platz im Paket haben. Deshalb nimmt Carrymark nur
-DOCX, XLSX und PPTX an.
+markitdown kann noch mehr Formate lesen (HTML, Bilder, Audio). Einbetten lässt sich Markdown aber
+nur in Formate, die dafür einen Platz haben: Office-Pakete und PDFs. Deshalb nimmt Carrymark nur
+DOCX, XLSX, PPTX und PDF an.
+
+Excel liest markitdown über pandas; leere Zellen kämen dabei als `NaN` und Spalten ohne Kopf als
+`Unnamed: 3` heraus. Carrymark leert beides in den Tabellen, der Inhalt bleibt vollständig.
 
 ## Schnellstart
 
@@ -84,7 +88,7 @@ eingebettet, 1 mindestens eine Datei veraltet, 3 verloren oder nicht lesbar, 2 B
 | Aktuell | Das eingebettete Markdown entspricht dem, was markitdown heute erzeugt |
 | Veraltet | Die Datei wurde seit dem Einbetten geändert |
 | Verloren | Fingerprint-Eintrag vorhanden, Part fehlt |
-| Nicht lesbar | Verschlüsselt, Makros (`.docm`, `vbaProject.bin`), beschädigt, DTD im XML |
+| Nicht lesbar | Verschlüsselt, signiert (PDF), Makros (`.docm`, `vbaProject.bin`), beschädigt, DTD im XML |
 
 Der Fingerprint (`cm-md-v1:…`) ist ein SHA-256 über das normalisierte Markdown, ohne
 Frontmatter. Neues Speichern in Office ohne inhaltliche Änderung lässt ihn unverändert. Eine
@@ -95,7 +99,7 @@ bettet einfach neu ein.
 
 ```markdown
 ---
-type: "Office Document"
+type: "Office Document"         # bei PDFs: "PDF Document"
 title: "Quartalsbericht"
 resource: "Quartalsbericht.docx"
 tags: ["docx"]
@@ -142,16 +146,28 @@ Geschrieben wird atomar über eine temporäre Datei; ist die Datei in Office ge�
 hat sie sich seit dem Lesen geändert, bricht Carrymark ab. Neben der Datei liegt eine Sicherung
 im Ordner `Datei.docx.carrymark/` (`markdown.md`, `embed.json`).
 
+### In PDFs
+
+PDF kann Dateien tragen. Carrymark legt das Markdown als eingebettete Datei `carrymark.md` an,
+Medientyp `text/markdown`, Beziehung `Alternative` (eine andere Darstellung desselben Inhalts,
+wie PDF/A-3 es vorsieht). Fingerprint, GUID und Zeitpunkt stehen zusätzlich in den
+Dokumentinformationen (`/CarrymarkFingerprint`, `/CarrymarkPartGuid` …); fehlt der Anhang, die
+Einträge aber nicht, meldet Carrymark „Verloren“. Seiten und Text bleiben unverändert, die
+Datei wird mit [pypdf](https://github.com/py-pdf/pypdf) neu geschrieben. Signierte und
+verschlüsselte PDFs fasst Carrymark nicht an, weil das eine Signatur ungültig machen würde.
+PDF-Programme mit Anhangsansicht, etwa Acrobat Reader, zeigen das Markdown als Anhang.
+
 Ältere Dateien aus der Vorgängerversion (OfficeMD) erkennt Carrymark weiterhin; `sync` stellt sie
 beim nächsten Einbetten auf das aktuelle Format um.
 
 ## Mit einer KI nutzen
 
-Chat-Oberflächen lesen beim Hochladen einer Office-Datei meist nur den sichtbaren Text, nicht
-den eingebetteten Part. Zwei Wege:
+Chat-Oberflächen lesen beim Hochladen einer Office-Datei oder PDF meist nur den sichtbaren Text,
+nicht das eingebettete Markdown. Zwei Wege:
 
 - der KI sagen: „Die Datei ist ein ZIP. Unter `customXml/item1.xml` liegt ein Markdown-Abbild
-  (Carrymark). Lies es aus und arbeite damit.“ Mit Code-Ausführung klappt das.
+  (Carrymark). Lies es aus und arbeite damit.“ Bei PDFs: „Die PDF hat einen Anhang
+  `carrymark.md`.“ Mit Code-Ausführung klappt das.
 - oder direkt die `.md` aus `carrymark export` bzw. das OKF-Bundle mitgeben.
 
 ## Was getestet ist und was nicht
@@ -162,7 +178,7 @@ anlegen, Markdown einbetten, in der App öffnen, Text ergänzen, speichern. Part
 GUID, Fingerprint-Eintrag und das vollständige Markdown blieben in allen drei Apps erhalten.
 
 Nicht getestet: Office für Windows und im Browser, der Dokumentinspektor, Pages, Google Docs,
-LibreOffice. Die „möglichen Ursachen“, die `check` bei „Verloren“ nennt, sind bis dahin Annahmen.
+LibreOffice, und für PDFs das Speichern in Vorschau oder Acrobat nach dem Einbetten. Die „möglichen Ursachen“, die `check` bei „Verloren“ nennt, sind bis dahin Annahmen.
 
 Die Testsuite (`python -m pytest`) und der Selbsttest laufen in der
 [CI](.github/workflows/ci.yml) auf Linux und macOS mit Python 3.10 und 3.12, dazu ein Build der
@@ -171,9 +187,10 @@ Mac-App.
 ## Mac-App
 
 Unter `app/` liegt die SwiftUI-Oberfläche. Sie ruft das CLI auf und enthält selbst keine
-Paketlogik. Dateien oder Ordner hineinziehen; angenommen werden nur DOCX, XLSX und PPTX.
-Dateien, die sich nicht verarbeiten lassen (verschlüsselt, Makros, beschädigt), erscheinen nicht
-in der Liste, sondern als Hinweis unten in der Seitenleiste.
+Paketlogik. Dateien oder Ordner hineinziehen; angenommen werden nur DOCX, XLSX, PPTX und PDF.
+Dateien, die sich nicht verarbeiten lassen (verschlüsselt, signiert, Makros, beschädigt),
+erscheinen nicht in der Liste, sondern als Hinweis unten in der Seitenleiste. Die App merkt sich
+die aufgenommenen Ordner und Dateien.
 
 Je Datei: Zustand, Vorschau des Markdowns (Tabellen als Tabellen, Folien als Abschnitte),
 „Einbetten“, „Aktualisieren“ oder „Wiederherstellen“, „Als .md sichern“. In der Symbolleiste:
@@ -184,7 +201,7 @@ cd app && swift run                # Entwicklung, nutzt ./carrymark aus dem Repo
 scripts/build-app.sh               # fertiges dist/Carrymark.app samt Zip
 ```
 
-`scripts/build-app.sh` baut eine eigenständige App mit eingebettetem Python 3.12 und markitdown;
+`scripts/build-app.sh` baut eine eigenständige App mit eingebettetem Python 3.12, markitdown und pypdf;
 auf dem Zielrechner braucht es weder Python noch Git. Das Skript signiert jedes Binary und das
 Bundle mit Hardened Runtime (Identität automatisch: Developer ID, sonst Apple Development, sonst
 ad hoc; festlegen mit `SIGN_IDENTITY=…`) und lässt den Selbsttest im Bundle laufen. Rund 300 MB
@@ -207,7 +224,9 @@ src/carrymark/
   converter.py              markitdown-Aufruf, Normalisierung, Fingerprint, OKF-Frontmatter
   ops.py                    check, embed, restore, render, export, strip
   sync.py                   Prüfen und bei Bedarf aktualisieren
-  ooxml.py                  Part, Registrierung, custom.xml, atomares Schreiben
+  ooxml.py                  Office: Part, Registrierung, custom.xml, atomares Schreiben
+  pdfpkg.py                 PDF: Anhang carrymark.md, Dokumentinformationen
+  container.py              öffnet Office-Paket oder PDF
   selftest.py               Pakettest und Office-Roundtrip per AppleScript
   fixtures.py               Minimale Office-Dateien für Tests
 tests/                      pytest
@@ -223,6 +242,7 @@ compat/                     Kompatibilitätsberichte
   Corporation: die Umwandlung nach Markdown.
 - [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
   von Google Cloud Platform: Vorlage für Frontmatter und Bundles.
+- [pypdf](https://github.com/py-pdf/pypdf), BSD-Lizenz: Anhänge und Metadaten in PDFs.
 
 ## Lizenz
 

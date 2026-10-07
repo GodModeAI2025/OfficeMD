@@ -146,3 +146,43 @@ def make_pptx(path: Path, slides: List[List[str]], notes: Optional[Dict[int, str
         "ppt/_rels/presentation.xml.rels": DECL + f'<Relationships xmlns="{REL_NS}">{"".join(rels)}</Relationships>',
     })
     return _write(Path(path), parts)
+
+
+def make_pdf(path: Path, pages: Sequence[Sequence[str]], title: Optional[str] = None,
+             signed: bool = False) -> Path:
+    """Minimales PDF mit Textseiten (Helvetica, WinAnsi). ``signed`` setzt SigFlags wie eine Signatur."""
+    objects: List[bytes] = []
+
+    def add(body: str) -> int:
+        objects.append(body.encode("latin-1"))
+        return len(objects)
+
+    def esc(text: str) -> str:
+        return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    font = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+    page_ids = []
+    pages_id = len(pages) * 2 + 2  # nach Font und den Seitenpaaren
+    for lines in pages:
+        stream = "BT /F1 12 Tf 72 720 Td 16 TL " + " ".join(f"({esc(line)}) Tj T*" for line in lines) + " ET"
+        content = add(f"<< /Length {len(stream.encode('latin-1'))} >>\nstream\n{stream}\nendstream")
+        page_ids.append(add(f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 612 792] "
+                            f"/Contents {content} 0 R /Resources << /Font << /F1 {font} 0 R >> >> >>"))
+    kids = " ".join(f"{i} 0 R" for i in page_ids)
+    assert add(f"<< /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >>") == pages_id
+    acro = f" /AcroForm << /Fields [] /SigFlags 3 >>" if signed else ""
+    catalog = add(f"<< /Type /Catalog /Pages {pages_id} 0 R{acro} >>")
+    info = add(f"<< /Title ({esc(title)}) /Producer (Carrymark-Testdaten) >>" if title
+               else "<< /Producer (Carrymark-Testdaten) >>")
+    out = bytearray(b"%PDF-1.7\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    out += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+    out += (f"trailer\n<< /Size {len(objects) + 1} /Root {catalog} 0 R /Info {info} 0 R >>\n"
+            f"startxref\n{xref}\n%%EOF\n").encode()
+    Path(path).write_bytes(bytes(out))
+    return Path(path)

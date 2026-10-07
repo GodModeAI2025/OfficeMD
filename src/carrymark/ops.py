@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import __version__, converter, ooxml
+from . import __version__, container, converter, ooxml
 
 # Zustände
 NEVER = "never"
@@ -49,14 +49,6 @@ def _write_text(path: Path, text: str) -> None:
     tmp.replace(path)
 
 
-def _saving_app(pkg: ooxml.Package) -> Optional[str]:
-    root = pkg.optional_xml("docProps/app.xml")
-    for child in root if root is not None else []:
-        if child.tag.endswith("}Application"):
-            return (child.text or "").strip() or None
-    return None
-
-
 # -- check ---------------------------------------------------------------------
 
 @dataclass
@@ -83,14 +75,14 @@ def inspect(path: Path) -> Inspection:
                          "restorable": (side / "embed.json").is_file()}
 
     try:
-        pkg = ooxml.Package(path)
+        pkg = container.open_package(path)
         part = pkg.find_knowledge()
         props = pkg.read_props()
     except ooxml.OoxmlError as exc:
         return Inspection(_finish(report, UNREADABLE, str(exc)))
     result = Inspection(report, part=part, package=pkg)
 
-    app = _saving_app(pkg)
+    app = pkg.saving_app()
     if app:
         report["saved_by"] = app
         if any(name in app.lower() for name in FOREIGN_APPS):
@@ -156,7 +148,7 @@ def _finish(report: Dict[str, Any], state: str, message: str) -> Dict[str, Any]:
 
 def _save_payload(path: Path, payload: ooxml.Payload, pkg: Optional[ooxml.Package] = None) -> str:
     try:
-        pkg = pkg or ooxml.Package(path)
+        pkg = pkg or container.open_package(path)
         guid = pkg.embed(payload)
         pkg.save()
     except ooxml.OoxmlError as exc:
@@ -176,7 +168,7 @@ def embed(path: Path, conv: Optional[converter.Conversion] = None,
         raise OpError(f"Office hat die Datei geöffnet ({lock.name}); bitte zuerst schließen.")
     if conv is None:
         try:
-            pkg = pkg or ooxml.Package(path)
+            pkg = pkg or container.open_package(path)
             conv = converter.convert(path, pkg)
         except (ooxml.OoxmlError, converter.ConversionError) as exc:
             raise OpError(str(exc)) from exc
@@ -213,7 +205,7 @@ def restore(path: Path) -> Dict[str, Any]:
 
 def render(path: Path) -> str:
     try:
-        part = ooxml.Package(Path(path)).find_knowledge()
+        part = container.open_package(Path(path)).find_knowledge()
     except ooxml.OoxmlError as exc:
         raise OpError(f"Nicht lesbar: {exc}") from exc
     if part is None or not part.payload.markdown:
@@ -223,7 +215,7 @@ def render(path: Path) -> str:
 
 def strip(path: Path, *, keep_props: bool = False) -> bool:
     try:
-        pkg = ooxml.Package(Path(path))
+        pkg = container.open_package(Path(path))
         removed = pkg.remove_knowledge(keep_props=keep_props)
         pkg.save()
     except ooxml.OoxmlError as exc:
@@ -285,7 +277,7 @@ def export(paths: List[Path], out_dir: Optional[Path] = None, *, okf: bool = Fal
 # -- Dateiauswahl -------------------------------------------------------------------
 
 def _is_candidate(f: Path) -> bool:
-    return (f.suffix.lower() in ooxml.SUPPORTED_SUFFIXES
+    return (f.suffix.lower() in container.SUPPORTED_SUFFIXES
             and not f.name.startswith(("~$", ".cm-"))
             and not any(part.endswith((SIDECAR_SUFFIX, ".officemd", ".knowledge")) for part in f.parts))
 
@@ -297,7 +289,7 @@ def office_files(paths: List[Path]) -> Tuple[List[Path], List[Path]]:
     for p in map(Path, paths):
         if p.is_dir():
             candidates = [f for f in sorted(p.rglob("*")) if f.is_file() and _is_candidate(f)]
-        elif p.suffix.lower() in ooxml.SUPPORTED_SUFFIXES:
+        elif p.suffix.lower() in container.SUPPORTED_SUFFIXES:
             candidates = [p]
         else:
             ignored.append(p)

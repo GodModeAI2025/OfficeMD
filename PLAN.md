@@ -4,7 +4,7 @@ Stand 2026-10-07. Bedienung steht in der [README](README.md).
 
 ## Kurs
 
-Carrymark (vorher OfficeMD, Arbeitstitel ZugPferd) bettet Markdown in DOCX, XLSX und PPTX ein und
+Carrymark (vorher OfficeMD, Arbeitstitel ZugPferd) bettet Markdown in DOCX, XLSX, PPTX und PDF ein und
 hält es aktuell. Die Umwandlung übernimmt [microsoft/markitdown](https://github.com/microsoft/markitdown).
 Keine KI, kein Netz.
 
@@ -19,7 +19,9 @@ Distiller: `normalized_sha256` und `verify_evidence.py --bind`
 | Frage | Entscheidung |
 |---|---|
 | Woher kommt das Markdown? | markitdown, lokal, ohne Plugins |
-| Welche Formate? | Nur DOCX, XLSX, PPTX: nur sie haben einen Platz für eingebettete Daten. Die App nimmt andere Dateien gar nicht erst an. |
+| Welche Formate? | DOCX, XLSX, PPTX und PDF: nur sie haben einen Platz für eingebettete Daten. Die App nimmt andere Dateien gar nicht erst an. |
+| PDF | Anhang `carrymark.md` (`text/markdown`, Beziehung `Alternative`), Fingerprint in den Dokumentinformationen; Neuschreiben mit pypdf (inkrementelles Speichern vergab bei der zweiten Aktualisierung Objektnummern doppelt); signierte und verschlüsselte PDFs werden abgelehnt |
+| Excel-Artefakte | `NaN` und `Unnamed: N` aus pandas werden in Tabellenzellen geleert |
 | Fingerprint | SHA-256 über das normalisierte Markdown ohne Frontmatter (`cm-md-v1:`). Neues Speichern ohne inhaltliche Änderung ändert ihn nicht. |
 | Frontmatter | Open Knowledge Format v0.2: `type`, `title`, `resource`, `tags`, `sources`, `generated`, eigene Felder unter `carrymark:` |
 | Export | `.md` neben der Datei oder OKF-Bundle mit `index.md` |
@@ -38,6 +40,7 @@ Distiller: `normalized_sha256` und `verify_evidence.py --bind`
 ## Offen
 
 - Office für Windows und im Browser, Dokumentinspektor, Pages, Google Docs, LibreOffice testen.
+- PDF: Speichern in Vorschau und Acrobat nach dem Einbetten testen (bleibt der Anhang?).
 - App notarisieren (`NOTARY_PROFILE=… scripts/build-app.sh`).
 - Bundle verkleinern: onnxruntime kommt über markitdowns Dateityperkennung; prüfen, ob sich das
   bei bekannten Office-Typen umgehen lässt.

@@ -130,6 +130,7 @@ def offline() -> List[Dict[str, Any]]:
             "docx": fixtures.make_docx(tmp_path / "test.docx", ["Erster Absatz.", "Zweiter Absatz."]),
             "xlsx": fixtures.make_xlsx(tmp_path / "test.xlsx", {"Daten": [["Monat", "Wert"], ["Mai", "12"]]}),
             "pptx": fixtures.make_pptx(tmp_path / "test.pptx", [["Titel", "Punkt"]], notes={1: "Notiz"}),
+            "pdf": fixtures.make_pdf(tmp_path / "test.pdf", [["Erste Seite"], ["Zweite Seite"]]),
         }
         for kind, path in files.items():
             steps = {}

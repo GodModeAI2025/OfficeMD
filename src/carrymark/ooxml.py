@@ -297,6 +297,27 @@ class Package:
     def xml(self, name: str) -> ET.Element:
         return _parse_xml(name, self.read(name))
 
+    def saving_app(self) -> Optional[str]:
+        """Programm, mit dem die Datei zuletzt gespeichert wurde (docProps/app.xml)."""
+        root = self.optional_xml("docProps/app.xml")
+        for child in root if root is not None else []:
+            if child.tag.endswith("}Application"):
+                return (child.text or "").strip() or None
+        return None
+
+    def core_metadata(self) -> Dict[str, Optional[str]]:
+        """Titel, Autor und Änderungsdatum aus docProps/core.xml, sofern vorhanden."""
+        root = self.optional_xml("docProps/core.xml")
+        ns = {"dc": "http://purl.org/dc/elements/1.1/", "dcterms": "http://purl.org/dc/terms/"}
+
+        def text(path: str) -> Optional[str]:
+            node = root.find(path, ns) if root is not None else None
+            value = (node.text or "").strip() if node is not None else ""
+            return value or None
+
+        return {"title": text("dc:title"), "author": text("dc:creator"),
+                "last_modified": text("dcterms:modified")}
+
     def optional_xml(self, name: str) -> Optional[ET.Element]:
         """Optionaler Part (etwa docProps/core.xml); fehlt oder kaputt ergibt None."""
         if not self.has(name):

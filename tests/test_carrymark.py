@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from carrymark import cli, converter, ooxml, ops, sync
-from carrymark.fixtures import make_docx, make_pptx, make_xlsx
+from carrymark import cli, container, converter, ooxml, ops, sync
+from carrymark.fixtures import make_docx, make_pdf, make_pptx, make_xlsx
 
 PARAS = ["Die Anlage läuft seit Mai.", "Wartung erfolgt quartalsweise."]
 
@@ -309,11 +309,11 @@ def test_sync_converts_each_file_once(docx: Path, monkeypatch) -> None:
 
 
 def test_office_files_ignores_unsupported_paths(workdir: Path, docx: Path) -> None:
-    pdf = workdir / "Notizen.pdf"
-    pdf.write_bytes(b"%PDF")
+    notes = workdir / "Notizen.txt"
+    notes.write_text("x")
     (workdir / "Bericht.docx.carrymark").mkdir()
-    files, ignored = ops.office_files([workdir, pdf])
-    assert files == [docx] and ignored == [pdf]
+    files, ignored = ops.office_files([workdir, notes])
+    assert files == [docx] and ignored == [notes]
 
 
 def test_export_keeps_same_named_files_apart(workdir: Path) -> None:
@@ -333,3 +333,88 @@ def test_okf_index_escapes_brackets() -> None:
 def test_office_files_lists_each_file_once(workdir: Path, docx: Path) -> None:
     files, _ = ops.office_files([workdir, docx, workdir / "." / docx.name])
     assert files == [docx]
+
+
+# -- PDF -------------------------------------------------------------------------------
+
+PDF_PAGES = [["Angebot Nr. 4711", "Preis: 12.500 EUR netto"], ["Gueltig bis 31.12.2026"]]
+
+
+@pytest.fixture
+def pdf(workdir: Path) -> Path:
+    return make_pdf(workdir / "Angebot.pdf", PDF_PAGES, title="Angebot 4711")
+
+
+def test_pdf_embed_as_attachment_with_metadata(pdf: Path) -> None:
+    from pypdf import PdfReader
+
+    assert ops.check(pdf)["state"] == ops.NEVER
+    result = ops.embed(pdf)
+    reader = PdfReader(str(pdf))
+    attachments = list(reader.attachment_list)
+    assert [a.name for a in attachments] == ["carrymark.md"]
+    assert str(attachments[0].subtype) == "/text/markdown"
+    assert str(attachments[0].associated_file_relationship) == "/Alternative"
+    assert reader.metadata["/CarrymarkPartGuid"] == result["guid"]
+    assert reader.metadata["/Title"] == "Angebot 4711"  # vorhandene Metadaten bleiben
+    document = ops.render(pdf)
+    assert 'type: "PDF Document"' in document and "Angebot Nr. 4711" in document
+    assert ops.check(pdf)["state"] == ops.CURRENT
+
+
+def test_pdf_reembed_keeps_single_attachment_and_guid(pdf: Path) -> None:
+    from pypdf import PdfReader
+
+    guid = ops.embed(pdf)["guid"]
+    for _ in range(2):
+        assert ops.embed(pdf)["guid"] == guid
+    assert len(list(PdfReader(str(pdf)).attachment_list)) == 1
+    assert ops.check(pdf)["state"] == ops.CURRENT
+
+
+def test_pdf_states_stale_lost_restore(pdf: Path, workdir: Path) -> None:
+    ops.embed(pdf)
+    embedded = ops.render(pdf)
+    ops.strip(pdf, keep_props=True)
+    assert ops.check(pdf)["state"] == ops.LOST
+    ops.restore(pdf)
+    assert ops.check(pdf)["state"] == ops.CURRENT
+    # Gleiches Markdown in einer PDF mit anderem Text: veraltet.
+    other = make_pdf(workdir / "Neu.pdf", [["Angebot Nr. 4712"]])
+    pkg = container.open_package(other)
+    pkg.embed(ooxml.Payload(fingerprint=converter.split_frontmatter(embedded)[0].split('fingerprint: "')[1].split('"')[0],
+                            embedded_at="t", markdown=embedded))
+    pkg.save()
+    assert ops.check(other)["state"] == ops.STALE
+
+
+def test_pdf_signed_and_encrypted_are_not_touched(workdir: Path) -> None:
+    from pypdf import PdfReader, PdfWriter
+
+    signed = make_pdf(workdir / "signiert.pdf", [["Vertrag"]], signed=True)
+    report = ops.check(signed)
+    assert report["state"] == ops.UNREADABLE and "Signatur" in report["message"]
+    plain = make_pdf(workdir / "offen.pdf", [["Geheim"]])
+    writer = PdfWriter(clone_from=PdfReader(str(plain)))
+    writer.encrypt("passwort")
+    with open(workdir / "verschluesselt.pdf", "wb") as handle:
+        writer.write(handle)
+    assert ops.check(workdir / "verschluesselt.pdf")["state"] == ops.UNREADABLE
+    with pytest.raises(ops.OpError):
+        ops.embed(signed)
+
+
+def test_pdf_sync_and_export(pdf: Path, workdir: Path) -> None:
+    assert sync.sync_file(pdf)["after"] == ops.CURRENT
+    files, _ = ops.office_files([workdir])
+    assert pdf in files
+    ops.export([pdf])
+    assert pdf.with_name("Angebot.pdf.md").read_text() == ops.render(pdf)
+
+
+# -- Excel-Artefakte von markitdown --------------------------------------------------------
+
+def test_nan_and_unnamed_cells_are_cleared() -> None:
+    text = converter.normalize("| Titel | Unnamed: 1 |\n| --- | --- |\n| NaN | NaN |\n| a | NaN-Wert |\n")
+    assert text == "| Titel | |\n| --- | --- |\n| | |\n| a | NaN-Wert |\n"
+    assert converter.normalize("Text NaN bleibt\n") == "Text NaN bleibt\n"

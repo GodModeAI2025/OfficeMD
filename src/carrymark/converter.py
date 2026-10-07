@@ -22,16 +22,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import __version__, ooxml
+from . import __version__, container, ooxml
 
 FINGERPRINT_PREFIX = "cm-md-v1:"
 OKF_VERSION = "0.2"
-OKF_TYPE = "Office Document"
-NS_CORE = {
-    "cp": "http://schemas.openxmlformats.org/package/2006/metadata/core-properties",
-    "dc": "http://purl.org/dc/elements/1.1/",
-    "dcterms": "http://purl.org/dc/terms/",
-}
+OKF_TYPES = {"pdf": "PDF Document"}  # sonst "Office Document"
 
 
 class ConversionError(Exception):
@@ -64,29 +59,22 @@ def markitdown_version() -> str:
     return getattr(markitdown, "__version__", "unbekannt")
 
 
+# markitdown liest Excel über pandas: leere Zellen werden zu "NaN", Spalten ohne Kopf zu
+# "Unnamed: 3". Beides ist kein Inhalt und wird in Tabellenzeilen geleert.
+_EMPTY_CELL = re.compile(r"(?<=\|) (?:NaN|Unnamed: \d+) (?=\|)")
+
+
 def normalize(markdown: str) -> str:
-    """Zeilenenden vereinheitlichen, Leerzeichen am Zeilenende und Leerzeilenblöcke kürzen."""
+    """Zeilenenden vereinheitlichen, Tabellen-Artefakte leeren, Leerzeichen und Leerzeilen kürzen."""
     text = markdown.replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.rstrip() for line in text.split("\n")]
+    lines = [_EMPTY_CELL.sub(" ", line) if line.startswith("|") else line for line in lines]
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip("\n")
     return text + "\n" if text else ""
 
 
 def fingerprint(body: str) -> str:
     return FINGERPRINT_PREFIX + hashlib.sha256(normalize(body).encode("utf-8")).hexdigest()
-
-
-def core_metadata(pkg: ooxml.Package) -> Dict[str, Optional[str]]:
-    """Titel, Autor und Änderungsdatum aus docProps/core.xml, sofern vorhanden."""
-    root = pkg.optional_xml("docProps/core.xml")
-
-    def text(path: str) -> Optional[str]:
-        node = root.find(path, NS_CORE) if root is not None else None
-        value = (node.text or "").strip() if node is not None else ""
-        return value or None
-
-    return {"title": text("dc:title"), "author": text("dc:creator"),
-            "last_modified": text("dcterms:modified")}
 
 
 _MARKITDOWN = None
@@ -102,12 +90,13 @@ def _markitdown():
     return _MARKITDOWN
 
 
-def convert(path: Path, pkg: Optional[ooxml.Package] = None) -> Conversion:
-    """Markdown für ``path``. ``pkg``: bereits geöffnetes Paket, spart das zweite Entpacken."""
+def convert(path: Path, pkg=None) -> Conversion:
+    """Markdown für ``path``. ``pkg``: bereits geöffnetes Paket, spart das zweite Einlesen."""
     path = Path(path)
     if pkg is None:
         try:
-            pkg = ooxml.Package(path)  # weist Makros, Verschlüsselung und kaputte Archive vorher ab
+            # weist Makros, Verschlüsselung, Signaturen und kaputte Dateien vorher ab
+            pkg = container.open_package(path)
         except ooxml.OoxmlError as exc:
             raise ConversionError(str(exc)) from exc
     version = markitdown_version()
@@ -117,7 +106,7 @@ def convert(path: Path, pkg: Optional[ooxml.Package] = None) -> Conversion:
         raise ConversionError(f"markitdown konnte die Datei nicht umwandeln: {exc}") from exc
     body = normalize(result.text_content or "")
     return Conversion(body=body, fingerprint=fingerprint(body), converter=f"markitdown/{version}",
-                      metadata=core_metadata(pkg))
+                      metadata=pkg.core_metadata())
 
 
 # -- Frontmatter (YAML) ------------------------------------------------------------------
@@ -133,7 +122,7 @@ def frontmatter(conv: Conversion, file_name: str, generated_at: str) -> str:
     title = meta.get("title") or Path(file_name).stem
     lines: List[str] = [
         "---",
-        f"type: {_q(OKF_TYPE)}",
+        f"type: {_q(OKF_TYPES.get(kind, 'Office Document'))}",
         f"title: {_q(title)}",
         f"resource: {_q(file_name)}",
         f"tags: [{_q(kind)}]",

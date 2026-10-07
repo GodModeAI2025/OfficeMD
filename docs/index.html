@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Carrymark</title>
-<meta name="description" content="Carrymark wandelt Word, Excel und PowerPoint mit microsoft/markitdown in Markdown um, legt es direkt in die Datei und erkennt, wann es nicht mehr zum Inhalt passt.">
+<meta name="description" content="Carrymark wandelt Word, Excel, PowerPoint und PDF mit microsoft/markitdown in Markdown um, legt es direkt in die Datei und erkennt, wann es nicht mehr zum Inhalt passt.">
 <style>
 :root {
   --bg: #fbfaf7;
@@ -127,9 +127,9 @@ a { color: var(--accent); }
   <div class="wrap">
     <div class="eyebrow">Carrymark</div>
     <h1>Markdown, das in der Datei bleibt.</h1>
-    <p class="lead">Carrymark wandelt Word, Excel und PowerPoint mit
+    <p class="lead">Carrymark wandelt Word, Excel, PowerPoint und PDF mit
     <a href="https://github.com/microsoft/markitdown">microsoft/markitdown</a> in Markdown um, legt es
-    direkt in die Office-Datei und sagt dir, wann es nicht mehr zum Inhalt passt. Lokal, ohne KI.</p>
+    direkt in die Datei und sagt dir, wann es nicht mehr zum Inhalt passt. Lokal, ohne KI.</p>
     <div class="actions">
       <a class="btn primary" href="https://github.com/GodModeAI2025/OfficeMD">Zum Repository</a>
       <a class="btn" href="https://github.com/microsoft/markitdown">microsoft/markitdown</a>
@@ -140,7 +140,7 @@ a { color: var(--accent); }
 <section>
   <div class="wrap">
     <h2>Das Problem</h2>
-    <p>Wer Office-Dokumente für Suche, Wikis oder Sprachmodelle aufbereitet, legt das Markdown
+    <p>Wer Office-Dokumente und PDFs für Suche, Wikis oder Sprachmodelle aufbereitet, legt das Markdown
     meist irgendwo anders ab. Ab dem Moment laufen Datei und Abzug auseinander: Jemand ändert eine
     Zahl in Excel, und der Abzug im Wiki stimmt nicht mehr.</p>
     <p>Carrymark dreht das um. Das Markdown steckt in der Datei selbst, und ein Fingerprint zeigt,
@@ -173,12 +173,13 @@ OKF-Bundle: wissen/index.md</code></pre>
     <h2>Wie es funktioniert</h2>
     <ol class="steps">
       <li><strong>Umwandeln.</strong> <a href="https://github.com/microsoft/markitdown">markitdown</a>
-      von Microsoft macht aus Absätzen, Tabellen und Folien sauberes Markdown, lokal auf deinem Rechner.</li>
+      von Microsoft macht aus Absätzen, Tabellen, Folien und PDF-Seiten sauberes Markdown, lokal auf
+      deinem Rechner.</li>
       <li><strong>Beschreiben.</strong> Carrymark setzt eine Frontmatter nach dem
       <a href="https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md">Open Knowledge Format</a>
       davor: Typ, Titel, Autor, Änderungsdatum, Erzeuger und Fingerprint.</li>
-      <li><strong>Einbetten.</strong> Das Dokument kommt als registrierter Custom-XML-Part ins
-      Office-Paket. Der eigentliche Inhalt der Datei bleibt byte-genau unverändert.</li>
+      <li><strong>Einbetten.</strong> In Office-Dateien als registrierter Custom-XML-Part, in PDFs als
+      Anhang <code>carrymark.md</code>. Der eigentliche Inhalt der Datei bleibt unverändert.</li>
       <li><strong>Prüfen.</strong> <code>carrymark check</code> vergleicht den Fingerprint mit dem
       aktuellen Inhalt: aktuell, veraltet oder verloren.</li>
       <li><strong>Aktualisieren.</strong> <code>carrymark sync</code> bettet neu ein, was sich
@@ -230,6 +231,10 @@ OKF-Bundle: wissen/index.md</code></pre>
     <p style="margin-top:16px">Der kleine Eintrag in <code>docProps/custom.xml</code> ist die
     Versicherung: Fehlt später der große Part, der Eintrag aber nicht, hat ein Programm den Part
     entfernt. Carrymark meldet dann <em>Verloren</em> und stellt das Markdown wieder her.</p>
+    <p><strong>Und PDFs?</strong> PDF kann Dateien tragen; ZUGFeRD-Rechnungen legen so ihr XML in die
+    PDF. Carrymark hängt das Markdown als <code>carrymark.md</code> an, mit der Beziehung
+    <em>Alternative</em> wie in PDF/A-3, und vermerkt Fingerprint und GUID in den
+    Dokumentinformationen. Signierte und verschlüsselte PDFs bleiben unangetastet.</p>
   </div>
 </section>
 
@@ -249,14 +254,15 @@ OKF-Bundle: wissen/index.md</code></pre>
       </table>
     </div>
     <p class="note" style="margin-top:16px">Noch nicht getestet: Office für Windows und im Browser,
-    der Dokumentinspektor, Pages, Google Docs, LibreOffice.</p>
+    der Dokumentinspektor, Pages, Google Docs, LibreOffice, und bei PDFs das Speichern in Vorschau
+    oder Acrobat nach dem Einbetten.</p>
   </div>
 </section>
 
 <section>
   <div class="wrap">
     <h2>Auch als Mac-App</h2>
-    <p>Ordner ins Fenster ziehen, und Carrymark zeigt für jede Office-Datei den Zustand und eine
+    <p>Ordner ins Fenster ziehen, und Carrymark zeigt für jede Office-Datei und PDF den Zustand und eine
     Vorschau des Markdowns, Tabellen als Tabellen. Einbetten, aktualisieren, wiederherstellen und
     als OKF-Bundle exportieren mit einem Klick. Andere Dateitypen nimmt die App gar nicht erst an.</p>
     <img src="app.png" alt="Carrymark-App: Seitenleiste mit Dateien nach Zustand, rechts eine geänderte Excel-Datei mit Tabellenvorschau" style="width:100%;height:auto;border:1px solid var(--line);border-radius:10px">
@@ -276,6 +282,11 @@ OKF-Bundle: wissen/index.md</code></pre>
         <h3>Open Knowledge Format</h3>
         <p>Vorlage für Frontmatter und Bundles, von Google Cloud Platform.
         <a href="https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md">Spezifikation</a></p>
+      </div>
+      <div class="card">
+        <h3>pypdf</h3>
+        <p>Anhänge und Metadaten in PDFs. BSD-Lizenz.
+        <a href="https://github.com/py-pdf/pypdf">GitHub</a></p>
       </div>
       <div class="card">
         <h3>Carrymark</h3>

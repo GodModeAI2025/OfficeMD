@@ -2,13 +2,14 @@ import SwiftUI
 
 /// Dokumenttyp mit Symbol und Farbe, angelehnt an die Office-Farben.
 enum DocKind {
-    case word, excel, powerpoint, other
+    case word, excel, powerpoint, pdf, other
 
     init(path: String) {
         switch (path as NSString).pathExtension.lowercased() {
         case "docx": self = .word
         case "xlsx": self = .excel
         case "pptx": self = .powerpoint
+        case "pdf": self = .pdf
         default: self = .other
         }
     }
@@ -18,6 +19,7 @@ enum DocKind {
         case .word: return "doc.text.fill"
         case .excel: return "tablecells.fill"
         case .powerpoint: return "play.rectangle.fill"
+        case .pdf: return "doc.richtext.fill"
         case .other: return "doc.fill"
         }
     }
@@ -27,6 +29,7 @@ enum DocKind {
         case .word: return Color(red: 0.16, green: 0.40, blue: 0.80)
         case .excel: return Color(red: 0.10, green: 0.55, blue: 0.33)
         case .powerpoint: return Color(red: 0.85, green: 0.35, blue: 0.20)
+        case .pdf: return Color(red: 0.78, green: 0.16, blue: 0.20)
         case .other: return .gray
         }
     }
@@ -36,6 +39,7 @@ enum DocKind {
         case .word: return "Word"
         case .excel: return "Excel"
         case .powerpoint: return "PowerPoint"
+        case .pdf: return "PDF"
         case .other: return "Datei"
         }
     }

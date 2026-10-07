@@ -83,7 +83,7 @@ final class Store: ObservableObject {
     }
 
     /// Dateitypen, die Carrymark verarbeiten kann. Alles andere wird nicht aufgenommen.
-    static let supportedExtensions: Set<String> = ["docx", "xlsx", "pptx"]
+    static let supportedExtensions: Set<String> = ["docx", "xlsx", "pptx", "pdf"]
 
     static func isSupported(_ url: URL) -> Bool {
         isDirectory(url.path) || supportedExtensions.contains(url.pathExtension.lowercased())
@@ -94,8 +94,8 @@ final class Store: ObservableObject {
         let ignored = urls.count - accepted.count
         for url in accepted where !roots.contains(url) { roots.append(url) }
         if ignored > 0 {
-            show(ignored == 1 ? "1 Datei ignoriert: nur Word, Excel und PowerPoint"
-                              : "\(ignored) Dateien ignoriert: nur Word, Excel und PowerPoint")
+            show(ignored == 1 ? "1 Datei ignoriert: nur Word, Excel, PowerPoint und PDF"
+                              : "\(ignored) Dateien ignoriert: nur Word, Excel, PowerPoint und PDF")
         }
         guard !accepted.isEmpty else { return }
         Task { await refresh() }

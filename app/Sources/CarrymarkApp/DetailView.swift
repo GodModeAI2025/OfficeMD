@@ -86,10 +86,12 @@ struct DetailView: View {
             return "Seit dem Einbetten wurde die Datei bearbeitet. „Aktualisieren“ erzeugt das Markdown neu und ersetzt das alte."
         case .lost:
             return (report.sidecar?.restorable ?? false)
-                ? "Ein Programm hat den Markdown-Part beim Speichern entfernt. Im Sidecar-Ordner liegt eine Sicherung, die du zurückschreiben kannst."
-                : "Ein Programm hat den Markdown-Part beim Speichern entfernt. Eine Sicherung gibt es nicht, das Markdown wird neu erzeugt."
+                ? "Ein Programm hat das eingebettete Markdown beim Speichern entfernt. Im Sidecar-Ordner liegt eine Sicherung, die du zurückschreiben kannst."
+                : "Ein Programm hat das eingebettete Markdown beim Speichern entfernt. Eine Sicherung gibt es nicht, das Markdown wird neu erzeugt."
         case .never:
-            return "markitdown wandelt die Datei lokal in Markdown um, Carrymark legt es in die Datei. Nichts verlässt diesen Mac."
+            return report.kind == .pdf
+                ? "markitdown wandelt die PDF lokal in Markdown um, Carrymark hängt es als Anhang an. Nichts verlässt diesen Mac."
+                : "markitdown wandelt die Datei lokal in Markdown um, Carrymark legt es in die Datei. Nichts verlässt diesen Mac."
         case .unreadable:
             return report.message
         }
