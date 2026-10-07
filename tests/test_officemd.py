@@ -268,3 +268,26 @@ def test_cli_exit_codes(docx: Path, capsys) -> None:
     ops.strip(docx, keep_props=True)
     assert cli.main(["check", str(docx)]) == 3
     assert cli.main(["embed", str(docx.parent / "fehlt.docx")]) == 2
+
+
+# -- Kopplung an den Distiller (normalized_sha256, --bind) ---------------------------
+
+def test_fingerprint_equals_distiller_normalized_sha256(docx: Path, workdir: Path) -> None:
+    from officemd.fingerprint import normalized_digest
+
+    for path in (docx, make_xlsx(workdir / "t.xlsx", {"A": [["x", "1"]]}),
+                 make_pptx(workdir / "f.pptx", [["Titel"]])):
+        normalized = distiller.extract(path)
+        assert normalized["source"]["normalized_sha256"] == normalized_digest(normalized)
+        assert text_fingerprint(normalized) == "omd-text-v1:" + normalized["source"]["normalized_sha256"]
+
+
+def test_resave_keeps_content_identity(docx: Path) -> None:
+    ops.embed(docx, graph_for(docx))
+    report = ops.check(docx)
+    # Einbetten hat die Bytes geändert, der Inhalt ist gleich geblieben.
+    assert report["evidence"]["binding"]["unchanged_since_compile"] in (None, "normalized_sha256")
+    replace_text(docx, "quartalsweise", "monatlich")
+    report = ops.check(docx)
+    assert report["evidence"]["binding"]["method"] == "binding"
+    assert report["evidence"]["binding"]["unchanged_since_compile"] is None

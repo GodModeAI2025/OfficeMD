@@ -88,6 +88,7 @@ def extract(path: Path) -> Dict[str, Any]:
         segments = kd._finalize_segments(
             drafts, source_hash, max_segments=max_segments, max_segment_chars=max_chars
         )
+        source_doc_hash = kd.normalized_sha256(segments) if hasattr(kd, "normalized_sha256") else None
         document = {
             "adapter_version": ADAPTER_VERSION,
             "source": {
@@ -97,6 +98,7 @@ def extract(path: Path) -> Dict[str, Any]:
                 "type": kind,
                 "mime_type": MIME[kind],
                 "content_sha256": source_hash,
+                **({"normalized_sha256": source_doc_hash} if source_doc_hash else {}),
                 "size_bytes": len(data),
             },
             "segment_count": len(segments),

@@ -206,15 +206,18 @@ einen Bericht in `compat/` ergänzen.
 Die Testsuite (`python3 -m pytest`) läuft ohne Office und deckt Paketstruktur, alle Zustände,
 Merge, Adapter und CLI ab.
 
-## Drei Stellen, an denen OfficeMD vom Distiller abweicht
+## Drei Stellen, an denen OfficeMD den Distiller ergänzt
 
-**Fingerprint.** Der Distiller hasht die rohen Dateibytes (`content_sha256`). Die ändern sich
-bei jedem Speichern in Office und durch den eingebetteten Part selbst. OfficeMD rechnet deshalb
-einen eigenen Fingerprint über Reihenfolge, Selektoren und Text der Segmente
-(`omd-text-v1:…`). Für die Belegprüfung bindet OfficeMD in einer temporären Kopie genau die
-Graph-Quelle, die für diese Datei steht, an die aktuelle Extraktion und ruft dann das
-unveränderte `verify_evidence.py` auf. Besser wäre ein textbasierter Hash direkt im Distiller;
-das ist als Änderung dort vorgesehen.
+**Fingerprint.** `content_sha256` des Distillers beschreibt die rohen Dateibytes, und die
+ändern sich bei jedem Speichern in Office und durch den eingebetteten Part. Seit Adapter 1.1
+liefert der Distiller deshalb zusätzlich `normalized_sha256`, einen Hash über Reihenfolge,
+Selektoren und Text der Segmente. Diese Erweiterung kam aus OfficeMD
+([knowledge-distiller#13](https://github.com/GodModeAI2025/knowledge-distiller/pull/13)).
+OfficeMD nutzt ihn als Fingerprint (`omd-text-v1:<normalized_sha256>`) und schreibt ihn in die
+Graph-Quelle. Für die Belegprüfung bindet OfficeMD die Quelle, die für die Datei steht, per
+`verify_evidence.py --bind` an die aktuelle Extraktion. So zählt die Prüfung auch nach
+Textänderungen, welche Belege noch auffindbar sind, und das Ergebnis nennt die Zuordnung
+(`matched_by: binding`).
 
 **Merge.** Ein neu kompilierter Graph trägt für dieselbe Quelle einen neuen Byte-Hash, und
 `merge_knowledge.py` lehnt das als Widerspruch ab. `officemd update` setzt den Hash der

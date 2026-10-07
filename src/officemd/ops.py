@@ -370,20 +370,24 @@ def _align_source_digest(base: Dict[str, Any], incoming_path: Path, source_id: O
     """
     if not source_id:
         return None
-    base_digest = next((s.get("content_sha256") for s in base.get("metadata", {}).get("sources", [])
-                        if isinstance(s, dict) and s.get("id") == source_id), None)
+    base_source = next((s for s in base.get("metadata", {}).get("sources", [])
+                        if isinstance(s, dict) and s.get("id") == source_id), None) or {}
     incoming = _read_json(incoming_path)
     for source in incoming.get("metadata", {}).get("sources", []):
         if isinstance(source, dict) and source.get("id") == source_id:
-            previous = source.get("content_sha256")
-            if previous == base_digest:
+            changes = {}
+            for field in ("content_sha256", "normalized_sha256"):
+                if source.get(field) == base_source.get(field):
+                    continue
+                changes[field] = {"incoming": source.get(field), "kept": base_source.get(field)}
+                if base_source.get(field) is None:
+                    source.pop(field, None)
+                else:
+                    source[field] = base_source[field]
+            if not changes:
                 return None
-            if base_digest is None:
-                source.pop("content_sha256", None)
-            else:
-                source["content_sha256"] = base_digest
             _write_json(incoming_path, incoming)
-            return {"source_id": source_id, "incoming": previous, "kept": base_digest}
+            return {"source_id": source_id, **changes}
     return None
 
 

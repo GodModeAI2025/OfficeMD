@@ -28,7 +28,7 @@ Extraktion nicht. Durch Tests belegt: Der Fingerprint bleibt beim Einbetten glei
 
 | Frage | Entscheidung |
 |---|---|
-| Belegprüfung trotz Byte-Hash | Weg (b): In temporären Kopien wird die eine Quelle, die für die Datei steht (`source_id`), an die aktuelle Extraktion gebunden, dann läuft das unveränderte `verify_evidence.py`. Weg (a), ein textbasierter Hash direkt im Distiller, bleibt als Änderung dort offen. |
+| Belegprüfung trotz Byte-Hash | Erst Weg (b), Umbindung in temporären Kopien. Seit 2026-10-07 Weg (a): Der Distiller liefert `normalized_sha256` und `verify_evidence.py --bind` (knowledge-distiller#13), OfficeMD nutzt beides. |
 | Merge nach Neukompilierung | `merge_knowledge.py` lehnt abweichende `content_sha256` derselben Quelle ab. `update` setzt den Wert der eingehenden Quelle auf den der Basis und meldet das (`aligned_source_digest`). |
 | Distiller einbinden | Git-Submodule `vendor/knowledge-distiller`, Aufruf per Subprozess mit `python -E -s` |
 | XLSX/PPTX | Eigene Adapter mit den Sicherheitsfunktionen aus `extract_source.py` |
@@ -98,7 +98,6 @@ Modellausgaben zum Testen vorliegen.
 
 - Office für Windows, Office im Browser, Dokumentinspektor, Pages, Google Docs, LibreOffice
   testen. Die Liste der möglichen Ursachen bei „Verloren“ ist bis dahin eine Annahme.
-- Textbasierter Hash direkt im Distiller (Weg a), dann entfällt die Umbindung in OfficeMD.
 - SwiftUI-App: Bundle mit eingebettetem Python und Distiller bauen, Signierung.
 - KI-Kompilierung mit gültigem Key gegen beide Anbieter laufen lassen; Prompt und Schema an
   echten Ausgaben nachschärfen.

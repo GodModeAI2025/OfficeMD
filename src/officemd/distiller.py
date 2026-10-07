@@ -1,7 +1,8 @@
 """Aufruf der Knowledge-Distiller-Skripte als Subprozess.
 
 Die Skripte bleiben unverändert im Submodule ``vendor/knowledge-distiller``. Sie laufen mit
-``python -E -s``: Umgebungsvariablen und User-Site werden ignoriert, das Skriptverzeichnis
+``python -E -s -B``: Umgebungsvariablen und User-Site werden ignoriert, es werden keine
+``.pyc``-Dateien geschrieben (wichtig im signierten App-Bundle), und das Skriptverzeichnis
 bleibt im Pfad, weil die Skripte ihre Geschwistermodule (``strict_json``) so importieren.
 """
 from __future__ import annotations
@@ -51,7 +52,7 @@ class Result:
 
 
 def run(name: str, args: Sequence[str], *, ok_codes: Sequence[int] = (0,), cwd: Optional[Path] = None) -> Result:
-    cmd = [sys.executable, "-E", "-s", str(script_path(name)), *[str(a) for a in args]]
+    cmd = [sys.executable, "-E", "-s", "-B", str(script_path(name)), *[str(a) for a in args]]
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd) if cwd else None)
     if proc.returncode not in ok_codes:
         raise DistillerError(name, proc.returncode, proc.stderr, proc.stdout)
@@ -104,8 +105,11 @@ def validate(graph: Path, prev: Optional[Path] = None) -> Dict[str, Any]:
         raise DistillerError("validate_knowledge", result.returncode, result.stderr, result.stdout) from exc
 
 
-def verify(graph: Path, normalized: Sequence[Path]) -> Dict[str, Any]:
-    result = run("verify_evidence", [graph, *normalized, "--json"], ok_codes=(0, 1))
+def verify(graph: Path, normalized: Sequence[Path], bind: Optional[Dict[str, Path]] = None) -> Dict[str, Any]:
+    args: List[Any] = [graph, *normalized, "--json"]
+    for source_id, path in (bind or {}).items():
+        args.append(f"--bind={source_id}={path}")
+    result = run("verify_evidence", args, ok_codes=(0, 1))
     return json.loads(result.stdout)
 
 

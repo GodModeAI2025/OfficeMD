@@ -237,6 +237,8 @@ def assemble(compact: Dict[str, Any], *, normalized: Dict[str, Any], file_name: 
         "type": source.get("type"),
         "content_sha256": source.get("content_sha256"),
     }
+    if source.get("normalized_sha256"):
+        graph_source["normalized_sha256"] = source["normalized_sha256"]
 
     # Evidence-IDs normalisieren und eindeutig machen.
     ev_map: Dict[str, str] = {}

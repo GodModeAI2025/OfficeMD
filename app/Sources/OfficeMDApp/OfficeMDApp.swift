@@ -151,6 +151,8 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup {
                 if store.busy { ProgressView().controlSize(.small) }
+                Button { openSettings() } label: { Label("Einstellungen", systemImage: "gearshape") }
+                    .help("KI-Anbieter, Modell und API-Key einstellen (⌘,)")
                 Button { importing = true } label: { Label("Hinzufügen", systemImage: "plus") }
                 Button {
                     Task { await store.sync(store.roots.map(\.path), label: "Alle Dateien") }

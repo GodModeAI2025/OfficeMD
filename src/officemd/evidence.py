@@ -1,15 +1,13 @@
 """Belege eines Graphen gegen den aktuellen Dokumenttext prüfen.
 
-``verify_evidence.py`` ordnet Graph-Quelle und Extraktion nur über identisches
-``content_sha256`` (Byte-Hash) zu. Nach jedem Speichern in Office und nach dem Einbetten
-stimmt der nicht mehr. Wir binden deshalb in temporären Kopien genau die eine Quelle, die für
-diese Datei steht (``source_id``), an die frische Extraktion und lassen dann das unveränderte
-Distiller-Skript prüfen. Belege anderer Quellen bleiben unangetastet und damit
-``unverifiable``. Im Bericht steht immer, dass so zugeordnet wurde.
+Die Datei, in der der Graph steckt, ist per Definition die Quelle ``source_id``. Deshalb wird
+diese Quelle mit ``verify_evidence.py --bind SOURCE_ID=EXTRAKTION`` ausdrücklich an die
+aktuelle Extraktion gebunden. So lässt sich auch nach Textänderungen zählen, welche Belege noch
+auffindbar sind. Der Bericht nennt zusätzlich, ob der Inhalt seit dem Kompilieren gleich
+geblieben ist (``normalized_sha256``) oder sogar die Bytes (``content_sha256``).
 """
 from __future__ import annotations
 
-import copy
 import json
 import tempfile
 from pathlib import Path
@@ -18,30 +16,35 @@ from typing import Any, Dict, Optional
 from . import distiller
 
 
+def _digest(value: Any) -> Optional[str]:
+    return value.removeprefix("sha256:").lower() if isinstance(value, str) else None
+
+
 def verify_against(graph: Dict[str, Any], source_id: str, normalized: Dict[str, Any]) -> Dict[str, Any]:
-    current_digest = normalized["source"]["content_sha256"]
-    graph_copy = copy.deepcopy(graph)
-    original_digest: Optional[str] = None
-    for source in graph_copy.get("metadata", {}).get("sources", []):
-        if isinstance(source, dict) and source.get("id") == source_id:
-            original_digest = source.get("content_sha256")
-            source["content_sha256"] = current_digest
-            break
-    else:
+    source = next((s for s in graph.get("metadata", {}).get("sources", [])
+                   if isinstance(s, dict) and s.get("id") == source_id), None)
+    if source is None:
         raise ValueError(f"Quelle {source_id!r} kommt im Graphen nicht vor")
 
     with tempfile.TemporaryDirectory(prefix="omd-verify-") as tmp:
         graph_path = Path(tmp) / "graph.knowledge.json"
         norm_path = Path(tmp) / "normalized.json"
-        graph_path.write_text(json.dumps(graph_copy, ensure_ascii=False), encoding="utf-8")
+        graph_path.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
         norm_path.write_text(json.dumps(normalized, ensure_ascii=False), encoding="utf-8")
-        report = distiller.verify(graph_path, [norm_path])
+        report = distiller.verify(graph_path, [], bind={source_id: norm_path})
 
     evidence_source = {
         e.get("id"): e.get("source") for e in graph.get("evidence", []) or [] if isinstance(e, dict)
     }
     own = [r for r in report["results"] if evidence_source.get(r["evidence"]) == source_id]
     counts = {name: sum(1 for r in own if r["status"] == name) for name in ("verified", "not_found", "unverifiable")}
+    current = normalized["source"]
+    if _digest(source.get("content_sha256")) == _digest(current.get("content_sha256")):
+        same = "content_sha256"
+    elif source.get("normalized_sha256") and _digest(source.get("normalized_sha256")) == _digest(current.get("normalized_sha256")):
+        same = "normalized_sha256"
+    else:
+        same = None
     return {
         "source_id": source_id,
         "total": len(own),
@@ -49,11 +52,14 @@ def verify_against(graph: Dict[str, Any], source_id: str, normalized: Dict[str, 
         "missing": [r for r in own if r["status"] != "verified"],
         "other_sources": len(report["results"]) - len(own),
         "binding": {
-            "method": "source_id" if original_digest != current_digest else "content_sha256",
-            "graph_content_sha256": original_digest,
-            "current_content_sha256": current_digest,
-            "note": "Quelle über source_id an die aktuelle Extraktion gebunden; ein gefundener Beleg "
-                    "zeigt nur, dass die Stelle existiert, nicht dass sie die Aussage stützt.",
+            "method": "binding",
+            "unchanged_since_compile": same,
+            "graph_content_sha256": source.get("content_sha256"),
+            "graph_normalized_sha256": source.get("normalized_sha256"),
+            "current_content_sha256": current.get("content_sha256"),
+            "current_normalized_sha256": current.get("normalized_sha256"),
+            "note": "Quelle per verify_evidence.py --bind an die aktuelle Extraktion gebunden; ein "
+                    "gefundener Beleg zeigt nur, dass die Stelle existiert, nicht dass sie die Aussage stützt.",
         },
     }
 
